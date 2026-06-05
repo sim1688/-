@@ -1,0 +1,17 @@
+.env
+node_modules/
+.mhtml_extract/
+.mhtml_extract_utf8/
+.mhtml_edit_extract/
+.mhtml_ad_info_extract/
+.mhtml_creative_extract/
+.mhtml_title_extract/
+.mhtml_landing_extract/
+source.mhtml
+source-edit.mhtml
+source-ad-info.mhtml
+source-creative-edit.mhtml
+source-title-pack.mhtml
+source-landing.mhtml
+data/*.json
+*.log
