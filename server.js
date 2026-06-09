@@ -813,7 +813,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function logStep(message) {
+  console.log(`[${new Date().toISOString()}] ${message}`);
+}
+
 function isRateLimitMessage(message) {
+  const text = String(message || "");
+  if (text.includes("频率") || text.includes("限流") || text.includes("超限") || text.includes("稍后")) {
+    return true;
+  }
   return /频率|限流|超限|稍后|too\s*many|rate/i.test(String(message || ""));
 }
 
@@ -868,14 +876,26 @@ async function fetchVideoCoverId(advertiserId, videoId) {
   throw new Error(`视频 ${videoId} 默认首帧封面获取失败：${lastMessage || "请稍后重试"}`);
 }
 
-async function uploadLocalVideo(advertiserId, file) {
+async function uploadLocalVideo(advertiserId, file, uploadCache) {
   const signature = crypto.createHash("md5").update(file.buffer).digest("hex");
-  const waits = [0, 10000, 20000, 40000];
+  if (uploadCache && uploadCache.has(signature)) {
+    logStep(`reuse local video ${file.filename} for advertiser ${advertiserId}`);
+    const cached = uploadCache.get(signature);
+    return {
+      ...cached,
+      filename: file.filename,
+      signature,
+      reused: true,
+    };
+  }
+
+  const waits = [0, 30000, 60000, 120000, 180000];
   let result = null;
   let lastMessage = "";
 
   for (const waitMs of waits) {
     if (waitMs) await sleep(waitMs);
+    logStep(`upload local video ${file.filename} for advertiser ${advertiserId}`);
     result = await oceanApiPostMultipartWithAuth("/open_api/2/file/video/ad/", {
       advertiser_id: advertiserId,
       video_signature: signature,
@@ -903,21 +923,80 @@ async function uploadLocalVideo(advertiserId, file) {
 
   const videoCoverId = extractVideoCoverId(result.body) || await fetchVideoCoverId(advertiserId, String(videoId));
 
-  return {
+  const uploaded = {
     filename: file.filename,
     videoId: String(videoId),
     videoCoverId,
     requestId: result.body.request_id,
+    signature,
+    reused: false,
   };
-}
-
-async function uploadLocalVideos(advertiserId, files) {
-  const uploaded = [];
-  for (const [index, file] of files.entries()) {
-    if (index > 0) await sleep(3000);
-    uploaded.push(await uploadLocalVideo(advertiserId, file));
+  if (uploadCache) {
+    uploadCache.set(signature, {
+      ...uploaded,
+      sourceAdvertiserId: advertiserId,
+    });
   }
   return uploaded;
+}
+
+async function uploadLocalVideos(advertiserId, files, uploadCache) {
+  const uploaded = [];
+  for (const [index, file] of files.entries()) {
+    if (index > 0) await sleep(8000);
+    uploaded.push(await uploadLocalVideo(advertiserId, file, uploadCache));
+  }
+  return uploaded;
+}
+
+function positiveInt(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(number)));
+}
+
+function pickUnitItems(items, unitIndex, perUnitCount) {
+  if (!Array.isArray(items) || !items.length || perUnitCount <= 0) return [];
+  if (items.length >= (unitIndex + 1) * perUnitCount) {
+    return items.slice(unitIndex * perUnitCount, (unitIndex + 1) * perUnitCount);
+  }
+  const picked = [];
+  for (let offset = 0; offset < perUnitCount; offset += 1) {
+    picked.push(items[(unitIndex * perUnitCount + offset) % items.length]);
+  }
+  return picked;
+}
+
+function buildPromotionName(baseName, groupName, unitIndex, totalUnits) {
+  if (totalUnits <= 1) return baseName;
+  const suffix = String(unitIndex + 1).padStart(2, "0");
+  const prefix = groupName || baseName;
+  return `${prefix}-${suffix}`;
+}
+
+function buildUnitOptions(options, unitIndex, totalUnits) {
+  const creative = options.creative || {};
+  const perUnitVideoCount = positiveInt(
+    creative.videoCount,
+    Array.isArray(creative.videoIds) && creative.videoIds.length ? creative.videoIds.length : 1,
+    0,
+    30
+  );
+  const unitVideoIds = pickUnitItems(creative.videoIds || [], unitIndex, perUnitVideoCount);
+  const unitVideoCoverIds = pickUnitItems(creative.videoCoverIds || [], unitIndex, perUnitVideoCount);
+  const basePromotion = options.promotion || {};
+  return {
+    ...options,
+    promotion: {
+      ...basePromotion,
+      name: buildPromotionName(basePromotion.name, creative.groupName, unitIndex, totalUnits),
+    },
+    creative: {
+      ...creative,
+      videoIds: unitVideoIds,
+      videoCoverIds: unitVideoCoverIds,
+    },
+  };
 }
 
 async function cloneOneProjectAndPromotion(options) {
@@ -940,7 +1019,7 @@ async function cloneOneProjectAndPromotion(options) {
   let effectiveOptions = options;
 
   if (localVideoFiles.length) {
-    uploadedVideos = await uploadLocalVideos(advertiserId, localVideoFiles);
+    uploadedVideos = await uploadLocalVideos(advertiserId, localVideoFiles, options.localVideoUploadCache);
     effectiveOptions = {
       ...options,
       creative: {
@@ -955,6 +1034,7 @@ async function cloneOneProjectAndPromotion(options) {
   const projectPayload = createProjectPayload(sourceProject, effectiveOptions, nameSuffix, advertiserId);
   const projectBody = JSON.stringify(projectPayload);
   fs.writeFileSync(path.join(ROOT, "data/create-project-request.json"), JSON.stringify(projectPayload, null, 2), "utf8");
+  logStep(`create project for advertiser ${advertiserId}`);
   const projectResult = await oceanApiPostRawWithAuth("/open_api/v3.0/project/create/", projectBody);
   fs.writeFileSync(path.join(ROOT, "data/create-project-response.json"), projectResult.raw, "utf8");
   if (projectResult.body.code !== 0) {
@@ -970,29 +1050,44 @@ async function cloneOneProjectAndPromotion(options) {
     throw new Error(`Disable project failed: ${projectStatusResult.body.message}`);
   }
 
-  const promotionBody = createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserId, effectiveOptions);
-  fs.writeFileSync(path.join(ROOT, "data/create-promotion-request.json"), promotionBody, "utf8");
-  const promotionResult = await oceanApiPostRawWithAuth("/open_api/v3.0/promotion/create/", promotionBody);
-  fs.writeFileSync(path.join(ROOT, "data/create-promotion-response.json"), promotionResult.raw, "utf8");
-  if (promotionResult.body.code !== 0) {
-    throw new Error(`Create promotion failed: ${promotionResult.body.message}`);
-  }
-
-  const promotionId = extractInteger(promotionResult.raw, "promotion_id");
-  if (!promotionId) throw new Error("Create promotion response did not contain promotion_id.");
-
+  const creativeOptions = effectiveOptions.creative || {};
+  const promotionCount = positiveInt(creativeOptions.groupCount, 1, 1, 500);
+  const promotions = [];
   const promotionStatus = options.promotion && options.promotion.status ? options.promotion.status : "DISABLE";
-  const promotionStatusResult = await updatePromotionStatus(promotionId, promotionStatus, advertiserId);
-  fs.writeFileSync(path.join(ROOT, "data/promotion-status-update-response.json"), promotionStatusResult.raw, "utf8");
-  if (promotionStatusResult.body.code !== 0) {
-    throw new Error(`Disable promotion failed: ${promotionStatusResult.body.message}`);
+
+  for (let unitIndex = 0; unitIndex < promotionCount; unitIndex += 1) {
+    const unitOptions = buildUnitOptions(effectiveOptions, unitIndex, promotionCount);
+    const promotionBody = createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserId, unitOptions);
+    fs.writeFileSync(path.join(ROOT, "data/create-promotion-request.json"), promotionBody, "utf8");
+    logStep(`create promotion ${unitIndex + 1}/${promotionCount} for project ${projectId}`);
+    const promotionResult = await oceanApiPostRawWithAuth("/open_api/v3.0/promotion/create/", promotionBody);
+    fs.writeFileSync(path.join(ROOT, "data/create-promotion-response.json"), promotionResult.raw, "utf8");
+    if (promotionResult.body.code !== 0) {
+      throw new Error(`Create promotion ${unitIndex + 1}/${promotionCount} failed: ${promotionResult.body.message}`);
+    }
+
+    const promotionId = extractInteger(promotionResult.raw, "promotion_id");
+    if (!promotionId) throw new Error(`Create promotion ${unitIndex + 1}/${promotionCount} response did not contain promotion_id.`);
+
+    promotions.push({
+      promotionId,
+      promotionName: unitOptions.promotion && unitOptions.promotion.name
+        ? unitOptions.promotion.name
+        : `${sourcePromotion.promotion_name}-${nameSuffix}`,
+      promotionStatus,
+      videoCount: Array.isArray(unitOptions.creative && unitOptions.creative.videoIds)
+        ? unitOptions.creative.videoIds.length
+        : 0,
+    });
   }
 
   return {
     projectId,
-    promotionId,
+    promotionId: promotions.map((item) => item.promotionId).join(", "),
+    promotionIds: promotions.map((item) => item.promotionId),
     projectName: projectPayload.name,
-    promotionName: options.promotion && options.promotion.name ? options.promotion.name : `${sourcePromotion.promotion_name}-${nameSuffix}`,
+    promotionName: promotions.map((item) => item.promotionName).join(", "),
+    promotions,
     advertiserId,
     budget,
     cpaBid: Number(effectiveOptions.cpaBid || 1.34),
@@ -1029,6 +1124,7 @@ function normalizeAdvertiserIds(options) {
 async function cloneBatchProjectAndPromotion(options) {
   const advertiserIds = normalizeAdvertiserIds(options);
   const results = [];
+  const localVideoUploadCache = new Map();
 
   for (const advertiserId of advertiserIds) {
     try {
@@ -1036,6 +1132,7 @@ async function cloneBatchProjectAndPromotion(options) {
         ...options,
         advertiserId,
         advertiserIds: undefined,
+        localVideoUploadCache,
       });
       results.push({
         code: 0,

@@ -206,6 +206,9 @@ let adInfoConfig = {
 
 const defaultCreativeConfig = {
   groupCount: 1,
+  videoCount: 3,
+  imageCount: 0,
+  titleCount: 0,
   groupName: "创意组01",
   dynamicCreativeSwitch: "ON",
   videoHpVisibility: "HIDE_VIDEO_ON_HP",
@@ -413,6 +416,8 @@ function renderCreativeSummary() {
 
   creativeSummary.classList.remove("empty-state");
   creativeSummary.classList.add("material-summary");
+  const unitCount = Number(creativeConfig.groupCount || 1);
+  const perUnitVideoCount = Number(creativeConfig.videoCount || selectedLocalVideos().length || (creativeConfig.videoIds || []).length || 0);
   creativeSummary.innerHTML = `
     <strong>${escapeHtml(creativeConfig.groupName || "创意组01")}</strong>
     <p>视频 ${escapeHtml(selectedLocalVideos().length || (creativeConfig.videoIds || []).length)} 个</p>
@@ -1286,7 +1291,9 @@ function renderLocalVideoPool() {
 function randomPickLocalVideos(event) {
   event.preventDefault();
   if (!localVideoPool.length) return;
-  const desired = Math.max(1, Math.min(localVideoPool.length, Number(videoCount.value || localVideoPool.length)));
+  const unitCount = Math.max(1, Number(creativeGroupCount.value || 1));
+  const perUnitCount = Math.max(1, Number(videoCount.value || 1));
+  const desired = Math.max(1, Math.min(localVideoPool.length, unitCount * perUnitCount));
   const shuffled = localVideoPool
     .map((item) => ({ item, sort: Math.random() }))
     .sort((a, b) => a.sort - b.sort)
@@ -1313,9 +1320,9 @@ function openCreativeModal() {
   dynamicCreativeSwitch.value = creativeConfig.dynamicCreativeSwitch || "ON";
   videoHpVisibility.value = creativeConfig.videoHpVisibility || "HIDE_VIDEO_ON_HP";
   creativeGroupCount.value = creativeConfig.groupCount || 1;
-  videoCount.value = (creativeConfig.videoIds || []).length;
-  imageCount.value = 0;
-  titleCount.value = 0;
+  videoCount.value = creativeConfig.videoCount || (creativeConfig.videoIds || []).length || 1;
+  imageCount.value = creativeConfig.imageCount || 0;
+  titleCount.value = creativeConfig.titleCount || 0;
   creativeGroupName.value = creativeConfig.groupName || "创意组01";
   videoIds.value = (creativeConfig.videoIds || []).join("\n");
   videoCoverIds.value = (creativeConfig.videoCoverIds || []).join("\n");
@@ -1337,8 +1344,17 @@ function saveCreativeDialog() {
     return;
   }
 
+  const perUnitVideoCount = Number(videoCount.value || 0);
+  if (!Number.isFinite(perUnitVideoCount) || perUnitVideoCount < 0 || perUnitVideoCount > 30) {
+    alert("视频数量必须在 0-30 之间");
+    return;
+  }
+
   const next = {
     groupCount,
+    videoCount: perUnitVideoCount,
+    imageCount: Number(imageCount.value || 0),
+    titleCount: Number(titleCount.value || 0),
     groupName: creativeGroupName.value.trim() || "创意组01",
     dynamicCreativeSwitch: dynamicCreativeSwitch.value,
     videoHpVisibility: videoHpVisibility.value,
@@ -1361,6 +1377,9 @@ function clearCreativeConfig(event) {
   event.preventDefault();
   creativeConfig = {
     groupCount: 0,
+    videoCount: 0,
+    imageCount: 0,
+    titleCount: 0,
     groupName: "",
     dynamicCreativeSwitch: "ON",
     videoHpVisibility: "HIDE_VIDEO_ON_HP",
