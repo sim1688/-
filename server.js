@@ -2,6 +2,7 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { URL } = require("url");
 
 const ROOT = __dirname;
@@ -201,6 +202,77 @@ function extractListAndPageInfo(data) {
   };
 }
 
+function normalizeAwemeListData(data) {
+  const source = data || {};
+  const candidates = [
+    source.list,
+    source.aweme_list,
+    source.ies_account_list,
+    source.accounts,
+    source.items,
+  ];
+  const list = candidates.find((item) => Array.isArray(item)) || [];
+  const pageInfo = source.page_info || source.pageInfo || {};
+  return {
+    list,
+    pageInfo: {
+      page: Number(pageInfo.page || source.page || 1),
+      page_size: Number(pageInfo.page_size || source.page_size || list.length || 0),
+      total_number: Number(pageInfo.total_number || pageInfo.total_count || source.total_number || source.total || list.length || 0),
+      total_page: Number(pageInfo.total_page || source.total_page || 1),
+    },
+  };
+}
+
+function fallbackAwemeAccount() {
+  try {
+    const sourcePromotion = readJsonFile("data/source-promotions.json").data.list[0];
+    const awemeId = sourcePromotion.native_setting && sourcePromotion.native_setting.aweme_id;
+    if (!awemeId) return null;
+    return {
+      aweme_id: String(awemeId),
+      aweme_name: "样例广告抖音号",
+      status: "SOURCE_SAMPLE",
+      source: "source-promotions",
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+async function fetchAwemeAccounts(advertiserId, page, pageSize) {
+  const result = await oceanGetWithAuth("/open_api/2/tools/ies_account_search/", {
+    advertiser_id: advertiserId,
+    page,
+    page_size: pageSize,
+  });
+
+  if (!result.body || result.body.code !== 0) {
+    return {
+      ok: false,
+      code: result.body && result.body.code,
+      message: result.body && result.body.message ? result.body.message : "抖音号列表获取失败",
+      body: result.body,
+    };
+  }
+
+  const data = normalizeAwemeListData(result.body.data);
+  const list = data.list.slice();
+  if (!list.length) {
+    const fallback = fallbackAwemeAccount();
+    if (fallback) list.push(fallback);
+  }
+
+  return {
+    ok: true,
+    list,
+    pageInfo: Object.assign({}, data.pageInfo, {
+      total_number: list.length,
+      page_size: list.length || data.pageInfo.page_size,
+    }),
+  };
+}
+
 async function fetchMiniGames(advertiserId, productType, page, pageSize, organizationId) {
   const endpointConfigs = productType === "BYTE_GAME"
     ? [
@@ -306,6 +378,63 @@ function oceanPost(hostname, apiPath, payload) {
   });
 }
 
+function oceanApiPostMultipart(apiPath, fields, files) {
+  return new Promise((resolve, reject) => {
+    const boundary = `----oceanengine-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const chunks = [];
+
+    Object.keys(fields).forEach((key) => {
+      if (fields[key] === undefined || fields[key] === null) return;
+      chunks.push(Buffer.from(`--${boundary}\r\n`));
+      chunks.push(Buffer.from(`Content-Disposition: form-data; name="${key}"\r\n\r\n`));
+      chunks.push(Buffer.from(String(fields[key])));
+      chunks.push(Buffer.from("\r\n"));
+    });
+
+    files.forEach((file) => {
+      chunks.push(Buffer.from(`--${boundary}\r\n`));
+      chunks.push(Buffer.from(`Content-Disposition: form-data; name="${file.fieldName}"; filename="${file.filename}"\r\n`));
+      chunks.push(Buffer.from(`Content-Type: ${file.contentType || "application/octet-stream"}\r\n\r\n`));
+      chunks.push(file.buffer);
+      chunks.push(Buffer.from("\r\n"));
+    });
+
+    chunks.push(Buffer.from(`--${boundary}--\r\n`));
+    const body = Buffer.concat(chunks);
+    const request = https.request({
+      hostname: API_HOST,
+      path: apiPath,
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": body.length,
+        "Access-Token": process.env.OCEANENGINE_ACCESS_TOKEN,
+        "User-Agent": "oceanengine-batch-creator/0.1",
+      },
+    }, (response) => {
+      let responseBody = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        responseBody += chunk;
+      });
+      response.on("end", () => {
+        let parsed = null;
+        try {
+          parsed = JSON.parse(responseBody);
+        } catch (error) {
+          reject(new Error(`OceanEngine API returned non-JSON: ${responseBody.slice(0, 200)}`));
+          return;
+        }
+        resolve({ statusCode: response.statusCode, body: parsed, raw: responseBody });
+      });
+    });
+
+    request.on("error", reject);
+    request.write(body);
+    request.end();
+  });
+}
+
 function oceanApiPostRaw(apiPath, body) {
   return new Promise((resolve, reject) => {
     const request = https.request({
@@ -350,6 +479,14 @@ async function oceanApiPostRawWithAuth(apiPath, body) {
   return oceanApiPostRaw(apiPath, body);
 }
 
+async function oceanApiPostMultipartWithAuth(apiPath, fields, files) {
+  const result = await oceanApiPostMultipart(apiPath, fields, files);
+  if (!isAccessTokenExpired(result.body)) return result;
+
+  await refreshOAuthToken();
+  return oceanApiPostMultipart(apiPath, fields, files);
+}
+
 function cleanForCreate(value) {
   if (value === null || value === undefined || value === "") return undefined;
   if (Array.isArray(value)) {
@@ -383,6 +520,63 @@ function parseWordList(value) {
     .map((item) => Number(item.trim()))
     .filter((item) => Number.isFinite(item));
   return items.length ? items : undefined;
+}
+
+function sanitizeMultipartFilename(value) {
+  return path.basename(String(value || "video.mp4").replace(/\0/g, ""));
+}
+
+function parseMultipartBody(buffer, boundary) {
+  const delimiter = Buffer.from(`--${boundary}`);
+  const parts = [];
+  let start = buffer.indexOf(delimiter);
+  if (start === -1) return { fields: {}, files: [] };
+
+  while (start !== -1) {
+    start += delimiter.length;
+    if (buffer[start] === 45 && buffer[start + 1] === 45) break;
+    if (buffer[start] === 13 && buffer[start + 1] === 10) start += 2;
+
+    const next = buffer.indexOf(delimiter, start);
+    if (next === -1) break;
+    let part = buffer.slice(start, next);
+    if (part.length >= 2 && part[part.length - 2] === 13 && part[part.length - 1] === 10) {
+      part = part.slice(0, -2);
+    }
+    parts.push(part);
+    start = next;
+  }
+
+  const fields = {};
+  const files = [];
+  parts.forEach((part) => {
+    const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
+    if (headerEnd === -1) return;
+    const headerText = part.slice(0, headerEnd).toString("utf8");
+    const content = part.slice(headerEnd + 4);
+    const disposition = headerText.match(/content-disposition:\s*form-data;\s*([^\r\n]+)/i);
+    if (!disposition) return;
+    const nameMatch = disposition[1].match(/name="([^"]+)"/);
+    if (!nameMatch) return;
+    const filenameMatch = disposition[1].match(/filename="([^"]*)"/);
+    const contentTypeMatch = headerText.match(/content-type:\s*([^\r\n]+)/i);
+    const name = nameMatch[1];
+
+    if (filenameMatch) {
+      if (!filenameMatch[1] || content.length === 0) return;
+      files.push({
+        fieldName: name,
+        filename: sanitizeMultipartFilename(filenameMatch[1]),
+        contentType: contentTypeMatch ? contentTypeMatch[1].trim() : "application/octet-stream",
+        buffer: content,
+      });
+      return;
+    }
+
+    fields[name] = content.toString("utf8");
+  });
+
+  return { fields, files };
 }
 
 function createProjectPayload(sourceProject, options, nameSuffix, advertiserId) {
@@ -435,8 +629,11 @@ function createProjectPayload(sourceProject, options, nameSuffix, advertiserId) 
   payload.pricing = projectContent.pricing || payload.pricing || "PRICING_OCPM";
   payload.delivery_setting.schedule_type = projectContent.scheduleType || payload.delivery_setting.schedule_type || "SCHEDULE_FROM_NOW";
   payload.delivery_setting.budget_mode = projectContent.budgetMode || payload.delivery_setting.budget_mode || "BUDGET_MODE_DAY";
-  payload.delivery_setting.budget_optimize_switch = projectContent.budgetOptimizeSwitch || payload.delivery_setting.budget_optimize_switch;
   payload.delivery_setting.bid_type = projectContent.bidStrategy || payload.delivery_setting.bid_type || "CUSTOM";
+  delete payload.delivery_setting.budget_optimize_switch;
+  if (payload.delivery_setting.bid_type === "NO_BID" && projectContent.budgetOptimizeSwitch === "ON") {
+    payload.delivery_setting.budget_optimize_switch = "ON";
+  }
   if (payload.delivery_setting.bid_type === "NO_BID") {
     delete payload.delivery_setting.cpa_bid;
     delete payload.delivery_setting.roi_goal;
@@ -504,13 +701,13 @@ function createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserI
   const landingOptions = options.landing || promotionOptions.landing || {};
   const titleOptions = Array.isArray(titlePackOptions.titles) && titlePackOptions.titles.length
     ? titlePackOptions
-    : creativeOptions;
+    : {};
   const landingUrls = Array.isArray(landingOptions.urls) && landingOptions.urls.length
     ? landingOptions.urls
-    : creativeOptions.externalUrls;
+    : [];
   const materials = cleanForCreate(sourcePromotion.promotion_materials);
   if (materials && promotionOptions.callToActionButtons) {
-    materials.call_to_action_buttons = promotionOptions.callToActionButtons;
+    materials.call_to_action_buttons = promotionOptions.callToActionButtons.slice(0, 10);
   }
   if (materials && creativeOptions.dynamicCreativeSwitch) {
     materials.dynamic_creative_switch = creativeOptions.dynamicCreativeSwitch;
@@ -518,11 +715,12 @@ function createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserI
   if (materials && materials.product_info) {
     materials.product_info = Object.assign({}, materials.product_info);
     if (promotionOptions.productName) materials.product_info.titles = [promotionOptions.productName];
-    if (promotionOptions.sellingPoint) materials.product_info.selling_points = [promotionOptions.sellingPoint];
-    if (Array.isArray(creativeOptions.productImageIds) && creativeOptions.productImageIds.length) {
-      materials.product_info.image_ids = creativeOptions.productImageIds;
-      materials.product_info.echo_image_ids = [];
-    }
+    const sellingPoints = Array.isArray(promotionOptions.sellingPoints) && promotionOptions.sellingPoints.length
+      ? promotionOptions.sellingPoints.slice(0, 10)
+      : promotionOptions.sellingPoint
+        ? [promotionOptions.sellingPoint]
+        : null;
+    if (sellingPoints) materials.product_info.selling_points = sellingPoints;
   }
   if (materials && materials.video_material_list) {
     materials.video_material_list = materials.video_material_list.map((item) => cleanForCreate({
@@ -572,6 +770,11 @@ function createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserI
     materials.external_url_material_list = landingUrls.slice(0, limit);
   }
 
+  const nativeSetting = Object.assign({}, sourcePromotion.native_setting);
+  if (promotionOptions.identity === "AWEME" && promotionOptions.awemeId) {
+    nativeSetting.aweme_id = promotionOptions.awemeId;
+  }
+
   const payload = cleanForCreate({
     advertiser_id: Number(advertiserId || process.env.OCEANENGINE_ADVERTISER_ID),
     project_id: "__PROJECT_ID__",
@@ -581,7 +784,7 @@ function createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserI
     opt_status: promotionOptions.status || "DISABLE",
     is_comment_disable: promotionOptions.commentDisable || sourcePromotion.is_comment_disable,
     ad_download_status: sourcePromotion.ad_download_status,
-    native_setting: sourcePromotion.native_setting,
+    native_setting: nativeSetting,
     promotion_materials: materials,
     schedule_time: sourcePromotion.schedule_time,
     source: promotionOptions.source || sourcePromotion.source,
@@ -601,6 +804,122 @@ async function updatePromotionStatus(promotionId, optStatus, advertiserId) {
   return oceanApiPostRawWithAuth("/open_api/v3.0/promotion/status/update/", body);
 }
 
+function extractVideoId(body) {
+  const data = body && body.data ? body.data : {};
+  return data.video_id || data.id || data.material_id || data.video_material_id || null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRateLimitMessage(message) {
+  return /频率|限流|超限|稍后|too\s*many|rate/i.test(String(message || ""));
+}
+
+function extractVideoCoverId(body) {
+  const data = body && body.data ? body.data : {};
+  const candidates = [
+    data.video_cover_id,
+    data.videoCoverId,
+    data.cover_id,
+    data.coverId,
+    data.image_id,
+    data.id,
+  ];
+  for (const value of candidates) {
+    if (value) return String(value);
+  }
+
+  const list = data.list || data.images || data.cover_list || [];
+  if (Array.isArray(list) && list.length) {
+    const first = list[0];
+    return first.id || first.image_id || first.material_id || first.cover_id
+      ? String(first.id || first.image_id || first.material_id || first.cover_id)
+      : "";
+  }
+  return "";
+}
+
+async function fetchVideoCoverId(advertiserId, videoId) {
+  const waits = [0, 7000, 7000, 10000, 10000, 15000, 15000, 20000];
+  let lastMessage = "";
+
+  for (const waitMs of waits) {
+    if (waitMs) await sleep(waitMs);
+    const result = await oceanGetWithAuth("/open_api/2/tools/video_cover/suggest/", {
+      advertiser_id: advertiserId,
+      video_id: videoId,
+    });
+
+    if (!result.body || result.body.code !== 0) {
+      lastMessage = result.body && result.body.message ? result.body.message : "获取视频默认封面失败";
+      continue;
+    }
+
+    const status = result.body.data && result.body.data.status;
+    const coverId = extractVideoCoverId(result.body);
+    if (coverId) return coverId;
+    lastMessage = status === "RUNNING"
+      ? "视频默认封面仍在生成中"
+      : "未返回可用视频默认封面";
+  }
+
+  throw new Error(`视频 ${videoId} 默认首帧封面获取失败：${lastMessage || "请稍后重试"}`);
+}
+
+async function uploadLocalVideo(advertiserId, file) {
+  const signature = crypto.createHash("md5").update(file.buffer).digest("hex");
+  const waits = [0, 10000, 20000, 40000];
+  let result = null;
+  let lastMessage = "";
+
+  for (const waitMs of waits) {
+    if (waitMs) await sleep(waitMs);
+    result = await oceanApiPostMultipartWithAuth("/open_api/2/file/video/ad/", {
+      advertiser_id: advertiserId,
+      video_signature: signature,
+    }, [{
+      fieldName: "video_file",
+      filename: file.filename,
+      contentType: file.contentType,
+      buffer: file.buffer,
+    }]);
+
+    if (result.body && result.body.code === 0) break;
+    lastMessage = result.body && result.body.message ? result.body.message : "视频上传失败";
+    if (!isRateLimitMessage(lastMessage)) break;
+  }
+
+  if (!result.body || result.body.code !== 0) {
+    const message = lastMessage || (result.body && result.body.message ? result.body.message : "视频上传失败");
+    throw new Error(`${file.filename} 上传失败：${message}`);
+  }
+
+  const videoId = extractVideoId(result.body);
+  if (!videoId) {
+    throw new Error(`${file.filename} 上传成功但未返回 video_id`);
+  }
+
+  const videoCoverId = extractVideoCoverId(result.body) || await fetchVideoCoverId(advertiserId, String(videoId));
+
+  return {
+    filename: file.filename,
+    videoId: String(videoId),
+    videoCoverId,
+    requestId: result.body.request_id,
+  };
+}
+
+async function uploadLocalVideos(advertiserId, files) {
+  const uploaded = [];
+  for (const [index, file] of files.entries()) {
+    if (index > 0) await sleep(3000);
+    uploaded.push(await uploadLocalVideo(advertiserId, file));
+  }
+  return uploaded;
+}
+
 async function cloneOneProjectAndPromotion(options) {
   if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
     throw new Error("Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.");
@@ -616,8 +935,24 @@ async function cloneOneProjectAndPromotion(options) {
   const sourceProject = readJsonFile("data/source-project.json").data.list[0];
   const sourcePromotion = readJsonFile("data/source-promotions.json").data.list[0];
   const nameSuffix = options.nameSuffix || `复制-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+  const localVideoFiles = Array.isArray(options.localVideoFiles) ? options.localVideoFiles : [];
+  let uploadedVideos = [];
+  let effectiveOptions = options;
 
-  const projectPayload = createProjectPayload(sourceProject, options, nameSuffix, advertiserId);
+  if (localVideoFiles.length) {
+    uploadedVideos = await uploadLocalVideos(advertiserId, localVideoFiles);
+    effectiveOptions = {
+      ...options,
+      creative: {
+        ...(options.creative || {}),
+        videoSource: "LOCAL_UPLOAD",
+        videoIds: uploadedVideos.map((item) => item.videoId),
+        videoCoverIds: uploadedVideos.map((item) => item.videoCoverId),
+      },
+    };
+  }
+
+  const projectPayload = createProjectPayload(sourceProject, effectiveOptions, nameSuffix, advertiserId);
   const projectBody = JSON.stringify(projectPayload);
   fs.writeFileSync(path.join(ROOT, "data/create-project-request.json"), JSON.stringify(projectPayload, null, 2), "utf8");
   const projectResult = await oceanApiPostRawWithAuth("/open_api/v3.0/project/create/", projectBody);
@@ -635,7 +970,7 @@ async function cloneOneProjectAndPromotion(options) {
     throw new Error(`Disable project failed: ${projectStatusResult.body.message}`);
   }
 
-  const promotionBody = createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserId, options);
+  const promotionBody = createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserId, effectiveOptions);
   fs.writeFileSync(path.join(ROOT, "data/create-promotion-request.json"), promotionBody, "utf8");
   const promotionResult = await oceanApiPostRawWithAuth("/open_api/v3.0/promotion/create/", promotionBody);
   fs.writeFileSync(path.join(ROOT, "data/create-promotion-response.json"), promotionResult.raw, "utf8");
@@ -660,9 +995,69 @@ async function cloneOneProjectAndPromotion(options) {
     promotionName: options.promotion && options.promotion.name ? options.promotion.name : `${sourcePromotion.promotion_name}-${nameSuffix}`,
     advertiserId,
     budget,
-    cpaBid: Number(options.cpaBid || 1.34),
+    cpaBid: Number(effectiveOptions.cpaBid || 1.34),
     projectStatus,
     promotionStatus,
+    uploadedVideos,
+  };
+}
+
+function normalizeAdvertiserIds(options) {
+  const rawIds = [];
+  if (Array.isArray(options.advertiserIds)) {
+    rawIds.push(...options.advertiserIds);
+  }
+  if (options.advertiserId) {
+    rawIds.push(options.advertiserId);
+  }
+  if (!rawIds.length && process.env.OCEANENGINE_ADVERTISER_ID) {
+    rawIds.push(process.env.OCEANENGINE_ADVERTISER_ID);
+  }
+
+  const advertiserIds = Array.from(new Set(
+    rawIds.map((item) => String(item || "").trim()).filter(Boolean)
+  ));
+  if (!advertiserIds.length) {
+    throw new Error("Missing advertiser ID.");
+  }
+  if (advertiserIds.length > 20) {
+    throw new Error("A maximum of 20 advertiser accounts can be selected at once.");
+  }
+  return advertiserIds;
+}
+
+async function cloneBatchProjectAndPromotion(options) {
+  const advertiserIds = normalizeAdvertiserIds(options);
+  const results = [];
+
+  for (const advertiserId of advertiserIds) {
+    try {
+      const result = await cloneOneProjectAndPromotion({
+        ...options,
+        advertiserId,
+        advertiserIds: undefined,
+      });
+      results.push({
+        code: 0,
+        message: "OK",
+        ...result,
+      });
+    } catch (error) {
+      results.push({
+        code: 500,
+        advertiserId,
+        message: error.message,
+      });
+    }
+  }
+
+  const successCount = results.filter((item) => item.code === 0).length;
+  return {
+    total: advertiserIds.length,
+    successCount,
+    failureCount: advertiserIds.length - successCount,
+    budget: Number(options.budget || 300),
+    results,
   };
 }
 
@@ -686,6 +1081,46 @@ function readBody(req) {
     });
     req.on("error", reject);
   });
+}
+
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => {
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks));
+    });
+    req.on("error", reject);
+  });
+}
+
+async function readCloneRequest(req) {
+  const contentType = req.headers["content-type"] || "";
+  if (!contentType.startsWith("multipart/form-data")) {
+    return { body: await readBody(req), files: [] };
+  }
+
+  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  if (!boundaryMatch) {
+    throw new Error("multipart/form-data 缺少 boundary");
+  }
+
+  const raw = await readRawBody(req);
+  const parsed = parseMultipartBody(raw, boundaryMatch[1] || boundaryMatch[2]);
+  const payloadText = parsed.fields.payload || "{}";
+  let body = {};
+  try {
+    body = JSON.parse(payloadText);
+  } catch (error) {
+    throw new Error("payload 必须是 JSON");
+  }
+
+  return {
+    body,
+    files: parsed.files.filter((file) => file.fieldName === "localVideos"),
+  };
 }
 
 function updateEnv(updates) {
@@ -910,6 +1345,46 @@ async function handleApi(req, res) {
     return;
   }
 
+  if (req.url.startsWith("/api/aweme-accounts")) {
+    if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+      json(res, 401, {
+        code: 401,
+        message: "Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.",
+        config,
+      });
+      return;
+    }
+
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const advertiserId = url.searchParams.get("advertiser_id") || url.searchParams.get("advertiserId") || config.advertiserId;
+    const page = Number(url.searchParams.get("page") || 1);
+    const pageSize = Number(url.searchParams.get("page_size") || url.searchParams.get("pageSize") || 100);
+
+    try {
+      const result = await fetchAwemeAccounts(advertiserId, page, pageSize);
+      if (!result.ok) {
+        json(res, 502, {
+          code: result.code || 502,
+          message: result.message,
+          body: result.body,
+        });
+        return;
+      }
+
+      json(res, 200, {
+        code: 0,
+        message: "OK",
+        data: {
+          list: result.list,
+          page_info: result.pageInfo,
+        },
+      });
+    } catch (error) {
+      json(res, 502, { code: 502, message: error.message });
+    }
+    return;
+  }
+
   if (req.url.startsWith("/api/oauth/exchange")) {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const body = req.method === "POST" ? await readBody(req) : {};
@@ -1022,8 +1497,9 @@ async function handleApi(req, res) {
     }
 
     try {
-      const body = await readBody(req);
-      const result = await cloneOneProjectAndPromotion({
+      const cloneRequest = await readCloneRequest(req);
+      const body = cloneRequest.body;
+      const result = await cloneBatchProjectAndPromotion({
         budget: body.budget || 300,
         cpaBid: body.cpaBid,
         projectName: body.projectName,
@@ -1037,6 +1513,8 @@ async function handleApi(req, res) {
         landing: body.landing,
         nameSuffix: body.nameSuffix,
         advertiserId: body.advertiserId,
+        advertiserIds: body.advertiserIds,
+        localVideoFiles: cloneRequest.files,
       });
       json(res, 200, { code: 0, message: "OK", data: result });
     } catch (error) {

@@ -190,7 +190,7 @@
           </table>
         </div>
         <aside class="selected-box">
-          <div>已选(<b id="selectedAccountCount">0</b>/1) <button id="clearSelectedAccount">清空</button></div>
+          <div>已选(<b id="selectedAccountCount">0</b>/20) <button id="clearSelectedAccount">清空</button></div>
           <p id="selectedAccountName">暂无</p>
         </aside>
       </div>
@@ -331,13 +331,13 @@
                 <label><input type="radio" name="pricing" value="PRICING_OCPM" checked>目标转化出价-按展示付费(OCPM)</label>
               </div>
             </div>
-            <div class="inline-setting">
-              <span>预算择优分配</span>
-              <div class="segmented">
-                <label><input type="radio" name="budgetOptimizeSwitch" value="ON" checked>开启</label>
-                <label><input type="radio" name="budgetOptimizeSwitch" value="OFF">关闭</label>
+              <div class="inline-setting">
+                <span>预算择优分配</span>
+                <div class="segmented">
+                  <label><input type="radio" name="budgetOptimizeSwitch" value="ON">开启</label>
+                  <label><input type="radio" name="budgetOptimizeSwitch" value="OFF" checked>关闭</label>
+                </div>
               </div>
-            </div>
             <div class="inline-setting">
               <span>预算出价配置模式</span>
               <div class="segmented wide">
@@ -386,9 +386,14 @@
         <section class="form-section">
           <h3>广告基本信息</h3>
           <div class="project-grid">
-            <label>推广身份<select id="adIdentity"><option value="ACCOUNT">账户信息</option><option value="AWEME">抖音号</option></select></label>
+            <label>推广身份<select id="adIdentity"><option value="AWEME">抖音号</option><option value="ACCOUNT">账户信息</option></select></label>
             <label>抖音号来源<select id="awemeSource"><option value="MANUAL">手动选择</option><option value="MATCH">从创意组匹配</option></select></label>
             <label>匹配方式<select id="awemeMatchMode"><option value="ALL">所有广告选择同一个抖音号</option><option value="ACCOUNT">每个账户选择一个抖音号</option><option value="PROJECT">每个项目选择一个抖音号</option><option value="PROMOTION">每个广告选择一个抖音号</option></select></label>
+          </div>
+          <div class="aweme-picker-row">
+            <input id="awemeAccountId" placeholder="请选择或填写抖音号 ID">
+            <input id="awemeAccountName" placeholder="抖音号昵称" readonly>
+            <button class="clear-button" id="selectAwemeAccount" type="button">选择抖音号</button>
           </div>
         </section>
 
@@ -397,7 +402,8 @@
           <div class="project-grid">
             <label>原生锚点类型<select id="anchorType"><option value="OFF">不启用</option><option value="AUTO">自动生成</option><option value="EXISTING">选择已有</option><option value="TEMPLATE">模板生成</option></select></label>
             <label>附加创意组件<select id="creativeComponent"><option value="OFF">不启用</option><option value="ON">启用</option></select></label>
-            <label>行动号召<input id="callToActionButtons" value="开始游戏,点击即玩"></label>
+            <label>行动号召（最多10个）<textarea id="callToActionButtons" rows="4">开始游戏
+点击即玩</textarea></label>
           </div>
         </section>
 
@@ -406,7 +412,7 @@
           <div class="project-grid">
             <label>配置模式<select id="productConfigMode"><option value="UNIFIED">统一配置</option><option value="ACCOUNT">分账户配置</option><option value="PROJECT">分项目配置</option></select></label>
             <label>产品名称<input id="adProductName" maxlength="20" value="高手来挪车"></label>
-            <label>产品卖点<input id="adSellingPoint" value="无限下载，点击即玩"></label>
+            <label>产品卖点（最多10个）<textarea id="adSellingPoint" rows="4">无限下载，点击即玩</textarea></label>
           </div>
         </section>
 
@@ -438,6 +444,41 @@
           <button class="cancel-button" id="cancelAdInfoModal">取消</button>
           <button class="confirm-button is-ready" id="saveAdInfoConfig">保存</button>
         </div>
+      </footer>
+    </section>
+  </div>
+
+  <div class="modal" id="awemeModal" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <section class="aweme-dialog" role="dialog" aria-modal="true" aria-labelledby="awemeDialogTitle">
+      <header class="dialog-head">
+        <h2 id="awemeDialogTitle">选择抖音号</h2>
+        <button class="dialog-close" id="closeAwemeModal" aria-label="关闭">×</button>
+      </header>
+      <div class="aweme-filters">
+        <div class="search-input">
+          <input id="awemeKeyword" placeholder="搜索抖音昵称或ID">
+          <button id="awemeSearch" type="button">⌕</button>
+        </div>
+        <button class="clear-button" id="reloadAwemeAccounts" type="button">刷新</button>
+      </div>
+      <div class="aweme-table-wrap">
+        <table class="account-table aweme-table">
+          <thead>
+            <tr>
+              <th>抖音号</th>
+              <th>抖音号 ID</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="awemeRows">
+            <tr><td colspan="4" class="table-empty">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <footer class="aweme-foot">
+        <span id="awemePageInfo">共 0 条记录</span>
       </footer>
     </section>
   </div>
@@ -476,15 +517,28 @@
 
         <section class="form-section">
           <h3>素材内容</h3>
+          <div class="local-video-panel">
+            <div class="local-video-actions">
+              <div>
+                <strong>本地视频素材</strong>
+                <span id="localVideoStatus">未选择本地视频，默认使用下方视频 ID 或样例视频。</span>
+              </div>
+              <div class="local-video-buttons">
+                <button class="clear-button" id="chooseVideoFiles" type="button">选择视频</button>
+                <button class="clear-button" id="chooseVideoFolder" type="button">选择文件夹</button>
+                <button class="clear-button" id="randomLocalVideos" type="button">随机选取</button>
+                <button class="clear-button" id="clearLocalVideos" type="button">清空本地视频</button>
+              </div>
+            </div>
+            <input id="localVideoFiles" type="file" accept="video/*" multiple hidden>
+            <input id="localVideoFolder" type="file" accept="video/*" multiple webkitdirectory hidden>
+            <div class="local-video-list" id="localVideoList"></div>
+          </div>
           <div class="material-editor-grid">
             <label>视频 ID（一行一个，默认沿用样例视频）<textarea id="videoIds" rows="6"></textarea></label>
-            <label>视频封面 ID（一行一个，顺序对应视频）<textarea id="videoCoverIds" rows="6"></textarea></label>
-            <label>标题（一行一个）<textarea id="creativeTitles" rows="6"></textarea></label>
-            <label>落地页（一行一个）<textarea id="externalUrls" rows="6"></textarea></label>
-            <label>产品图 ID（一行一个）<textarea id="productImageIds" rows="4"></textarea></label>
-            <label>标题通配符 word_list（一行一个，逗号分隔；留空则沿用样例）<textarea id="titleWordLists" rows="4"></textarea></label>
+            <label>视频封面 ID（可选；本地上传默认首帧）<textarea id="videoCoverIds" rows="6"></textarea></label>
           </div>
-          <p class="hint">视频、封面、标题、落地页、产品图会写入 `promotion_materials`。没有填写的项目会继续复用成功样例，避免创建接口因为缺字段失败。</p>
+          <p class="hint">本地视频会在执行创建时先上传到对应广告主账户，上传成功后自动写入 `video_id`，并自动取默认首帧封面写入 `video_cover_id`。标题请在“标题包”模块配置，落地页请在“落地页”模块选择。</p>
         </section>
       </div>
       <footer class="dialog-foot">

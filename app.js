@@ -48,6 +48,12 @@ const adInfoModal = document.querySelector("#adInfoModal");
 const closeAdInfoModal = document.querySelector("#closeAdInfoModal");
 const cancelAdInfoModal = document.querySelector("#cancelAdInfoModal");
 const saveAdInfoConfig = document.querySelector("#saveAdInfoConfig");
+const adIdentity = document.querySelector("#adIdentity");
+const awemeSource = document.querySelector("#awemeSource");
+const awemeMatchMode = document.querySelector("#awemeMatchMode");
+const awemeAccountId = document.querySelector("#awemeAccountId");
+const awemeAccountName = document.querySelector("#awemeAccountName");
+const selectAwemeAccount = document.querySelector("#selectAwemeAccount");
 const callToActionButtons = document.querySelector("#callToActionButtons");
 const adProductName = document.querySelector("#adProductName");
 const adSellingPoint = document.querySelector("#adSellingPoint");
@@ -74,10 +80,14 @@ const titleCount = document.querySelector("#titleCount");
 const creativeGroupName = document.querySelector("#creativeGroupName");
 const videoIds = document.querySelector("#videoIds");
 const videoCoverIds = document.querySelector("#videoCoverIds");
-const creativeTitles = document.querySelector("#creativeTitles");
-const externalUrls = document.querySelector("#externalUrls");
-const productImageIds = document.querySelector("#productImageIds");
-const titleWordLists = document.querySelector("#titleWordLists");
+const chooseVideoFiles = document.querySelector("#chooseVideoFiles");
+const chooseVideoFolder = document.querySelector("#chooseVideoFolder");
+const localVideoFilesInput = document.querySelector("#localVideoFiles");
+const localVideoFolderInput = document.querySelector("#localVideoFolder");
+const localVideoList = document.querySelector("#localVideoList");
+const localVideoStatus = document.querySelector("#localVideoStatus");
+const randomLocalVideos = document.querySelector("#randomLocalVideos");
+const clearLocalVideos = document.querySelector("#clearLocalVideos");
 const editTitlePack = document.querySelector("#editTitlePack");
 const titlePackModal = document.querySelector("#titlePackModal");
 const closeTitlePackModal = document.querySelector("#closeTitlePackModal");
@@ -132,10 +142,20 @@ const miniGameHelpText = document.querySelector("#miniGameHelpText");
 const miniGameIconHead = document.querySelector("#miniGameIconHead");
 const miniGameNameHead = document.querySelector("#miniGameNameHead");
 const miniGameIdHead = document.querySelector("#miniGameIdHead");
+const awemeModal = document.querySelector("#awemeModal");
+const closeAwemeModal = document.querySelector("#closeAwemeModal");
+const awemeKeyword = document.querySelector("#awemeKeyword");
+const awemeSearch = document.querySelector("#awemeSearch");
+const reloadAwemeAccounts = document.querySelector("#reloadAwemeAccounts");
+const awemeRows = document.querySelector("#awemeRows");
+const awemePageInfo = document.querySelector("#awemePageInfo");
+
+const MAX_SELECTED_ADVERTISERS = 20;
 
 let advertisers = [];
-let selectedAdvertiser = null;
+let selectedAdvertisers = [];
 let miniGames = [];
+let awemeAccounts = [];
 let miniGamePage = 1;
 let miniGameTotalPage = 1;
 let projectConfig = {
@@ -165,18 +185,23 @@ let projectConfig = {
   bidStrategy: "CUSTOM",
   budgetMode: "BUDGET_MODE_DAY",
   pricing: "PRICING_OCPM",
-  budgetOptimizeSwitch: "ON",
+  budgetOptimizeSwitch: "OFF",
   bidBudgetMode: "UNIFIED",
 };
 
 let adInfoConfig = {
   name: "0421-高手来挪车-3-动态-top-16-复制",
   status: "DISABLE",
+  identity: "AWEME",
+  awemeSource: "MANUAL",
+  awemeMatchMode: "ALL",
+  awemeId: "71565649449",
+  awemeName: "",
   source: "高手来挪车",
   commentDisable: "OFF",
   callToActionButtons: ["开始游戏", "点击即玩"],
   productName: "高手来挪车",
-  sellingPoint: "无限下载，点击即玩",
+  sellingPoints: ["无限下载，点击即玩"],
 };
 
 const defaultCreativeConfig = {
@@ -194,13 +219,7 @@ const defaultCreativeConfig = {
     "tos-cn-i-sd07hgqsbj/9a5b6de6c04c4be0bf5c8afa0ac3a769",
     "tos-cn-i-sd07hgqsbj/8cc21ddc37f146479dc7b3170447d6bb",
   ],
-  titles: [
-    "{地点}人爱的游戏，没wifi也能玩一整天！",
-    "这么难！到底{地点}是谁在过关啊？",
-    "闺蜜说我人菜瘾大？截图为证！今天必须锤进{省份}TOP10！",
-    "{反性别-夫妻}说我人菜瘾大？截图为证！今天必须锤进排行榜TOP10！",
-    "{月份}超火爆小游戏！玩了5分钟就入迷了,太刺激了！",
-  ],
+  titles: [],
   titleWordLists: ["4", "4", "4322", "5126", "5127"],
   externalUrls: [
     "https://www.chengzijianzhan.com/tetris/page/7483704561821810698/?projectid=__PROJECT_ID__&promotionid=__PROMOTION_ID__&creativetype=__CTYPE__&clickid=__CLICKID__&mid1=__MID1__&mid2=__MID2__&mid3=__MID3__&mid4=__MID4__&mid5=__MID5__",
@@ -215,6 +234,15 @@ const defaultCreativeConfig = {
 };
 
 let creativeConfig = Object.assign({}, defaultCreativeConfig);
+let localVideoPool = [];
+
+const defaultTitlePackTitles = [
+  "{地点}人爱的游戏，没wifi也能玩一整天！",
+  "这么难！到底{地点}是谁在过关啊？",
+  "闺蜜说我人菜瘾大？截图为证！今天必须锤进{省份}TOP10！",
+  "{反性别-夫妻}说我人菜瘾大？截图为证！今天必须锤进排行榜TOP10！",
+  "{月份}超火爆小游戏！玩了5分钟就入迷了,太刺激了！",
+];
 
 const defaultTitlePackConfig = {
   pickMode: "MANUAL",
@@ -224,7 +252,7 @@ const defaultTitlePackConfig = {
   name: "高手来挪车标题包",
   keyword: "",
   accountScope: "ALL",
-  titles: defaultCreativeConfig.titles.slice(),
+  titles: defaultTitlePackTitles.slice(),
   titleWordLists: defaultCreativeConfig.titleWordLists.slice(),
 };
 
@@ -238,6 +266,7 @@ const defaultLandingConfig = {
   keyword: "",
   urls: defaultCreativeConfig.externalUrls.slice(),
   names: ["闯关奇才-3", "闯关奇才-1", "闯关奇才-2"],
+  selectedUrls: defaultCreativeConfig.externalUrls.slice(),
 };
 
 let landingConfig = Object.assign({}, defaultLandingConfig);
@@ -250,6 +279,9 @@ try {
 } catch (error) {
   console.warn("项目配置读取失败", error);
 }
+if (projectConfig.bidStrategy !== "NO_BID") {
+  projectConfig.budgetOptimizeSwitch = "OFF";
+}
 
 try {
   const savedAdInfoConfig = localStorage.getItem("oceanengineAdInfoConfig");
@@ -259,6 +291,13 @@ try {
 } catch (error) {
   console.warn("广告信息配置读取失败", error);
 }
+if (!Array.isArray(adInfoConfig.sellingPoints)) {
+  adInfoConfig.sellingPoints = adInfoConfig.sellingPoint ? [adInfoConfig.sellingPoint] : [];
+}
+adInfoConfig.callToActionButtons = Array.isArray(adInfoConfig.callToActionButtons)
+  ? adInfoConfig.callToActionButtons.slice(0, 10)
+  : ["开始游戏", "点击即玩"];
+adInfoConfig.sellingPoints = adInfoConfig.sellingPoints.slice(0, 10);
 
 try {
   const savedCreativeConfig = localStorage.getItem("oceanengineCreativeConfig");
@@ -288,8 +327,8 @@ try {
 }
 
 function syncState() {
-  const hasAccount = account.value.trim().length > 0;
-  estimate.textContent = hasAccount ? "1" : "0";
+  const fallbackCount = account.value.trim().length > 0 ? 1 : 0;
+  estimate.textContent = String(selectedAdvertisers.length || fallbackCount);
   budgetInput.value = projectConfig.budget;
   renderProjectSummary();
   renderCreativeSummary();
@@ -313,6 +352,8 @@ function renderProjectSummary() {
     adInfoSummary.innerHTML = `
       <p>广告名称：${escapeHtml(adInfoConfig.name)}</p>
       <p>产品名称：${escapeHtml(adInfoConfig.productName)}</p>
+      <p>抖音号：${escapeHtml(adInfoConfig.awemeName || adInfoConfig.awemeId || "--")}</p>
+      <p>行动号召：${escapeHtml((adInfoConfig.callToActionButtons || []).length)} 个 / 卖点：${escapeHtml((adInfoConfig.sellingPoints || []).length)} 个</p>
       <p>来源：${escapeHtml(adInfoConfig.source)}</p>
       <p>广告默认状态：${escapeHtml(statusText(adInfoConfig.status))}</p>
     `;
@@ -359,8 +400,7 @@ function renderCreativeSummary() {
   if (!creativeSummary) return;
 
   const hasMaterials = (creativeConfig.videoIds && creativeConfig.videoIds.length) ||
-    (creativeConfig.titles && creativeConfig.titles.length) ||
-    (creativeConfig.externalUrls && creativeConfig.externalUrls.length);
+    selectedLocalVideos().length;
   if (!hasMaterials) {
     creativeSummary.classList.add("empty-state");
     creativeSummary.classList.remove("material-summary");
@@ -375,8 +415,8 @@ function renderCreativeSummary() {
   creativeSummary.classList.add("material-summary");
   creativeSummary.innerHTML = `
     <strong>${escapeHtml(creativeConfig.groupName || "创意组01")}</strong>
-    <p>视频 ${escapeHtml((creativeConfig.videoIds || []).length)} 个 / 标题 ${escapeHtml((creativeConfig.titles || []).length)} 条</p>
-    <p>产品图 ${escapeHtml((creativeConfig.productImageIds || []).length)} 张 / 落地页 ${escapeHtml((creativeConfig.externalUrls || []).length)} 个</p>
+    <p>视频 ${escapeHtml(selectedLocalVideos().length || (creativeConfig.videoIds || []).length)} 个</p>
+    <p>本地视频 ${escapeHtml(selectedLocalVideos().length)} 个 / 手动视频 ID ${escapeHtml((creativeConfig.videoIds || []).length)} 个</p>
     <p>动态创意：${escapeHtml(creativeConfig.dynamicCreativeSwitch === "OFF" ? "不启用" : "启用")}</p>
   `;
 }
@@ -465,11 +505,13 @@ function landingDistributionText(value) {
 }
 
 function setResultLoading() {
+  const accountCount = selectedAdvertisers.length || 1;
   resultPanel.classList.add("has-result");
   resultPanel.innerHTML = `
     <h2>正在创建</h2>
     <div class="result-card">
       <div><span>执行步骤</span><strong>创建项目 → 暂停项目 → 创建单元 → 暂停单元</strong></div>
+      <div><span>媒体账户</span><strong>${accountCount} 个</strong></div>
       <div><span>预算</span><strong>${budgetInput.value || 300} 元/日</strong></div>
       <div><span>状态</span><strong>请求中...</strong></div>
     </div>
@@ -478,6 +520,46 @@ function setResultLoading() {
 
 function setResultSuccess(data) {
   resultPanel.classList.add("has-result");
+  if (data && Array.isArray(data.results)) {
+    const rows = data.results.map((item) => {
+      const ok = item.code === 0;
+      const note = ok ? (item.projectName || "--") : (item.message || "--");
+      return `
+        <tr>
+          <td>${escapeHtml(item.advertiserId)}</td>
+          <td>${ok ? "成功" : "失败"}</td>
+          <td>${escapeHtml(item.projectId || "--")}</td>
+          <td>${escapeHtml(item.promotionId || "--")}</td>
+          <td title="${escapeHtml(note)}">${escapeHtml(note)}</td>
+        </tr>
+      `;
+    }).join("");
+    const title = data.failureCount
+      ? (data.successCount ? "批量创建完成（部分失败）" : "批量创建失败")
+      : "批量创建成功";
+    resultPanel.innerHTML = `
+      <h2>${title}</h2>
+      <div class="result-card">
+        <div><span>总账号</span><strong>${escapeHtml(data.total || data.results.length)}</strong></div>
+        <div><span>成功</span><strong>${escapeHtml(data.successCount || 0)}</strong></div>
+        <div><span>失败</span><strong>${escapeHtml(data.failureCount || 0)}</strong></div>
+        <div><span>预算</span><strong>${escapeHtml(data.budget || projectConfig.budget)} 元/日</strong></div>
+      </div>
+      <table class="batch-result-table">
+        <thead>
+          <tr>
+            <th>广告主 ID</th>
+            <th>结果</th>
+            <th>项目 ID</th>
+            <th>单元 ID</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+    return;
+  }
   resultPanel.innerHTML = `
     <h2>创建成功</h2>
     <div class="result-card">
@@ -513,6 +595,10 @@ async function createOne() {
     setResultError("项目预算最低为 300 元/日。");
     return;
   }
+  if (!selectedAdvertisers.length) {
+    setResultError("请先选择至少 1 个媒体账户，最多可同时选择 20 个。");
+    return;
+  }
   projectConfig.budget = budget;
 
   const projectNameForCreate = projectRandomSuffix.checked
@@ -527,50 +613,66 @@ async function createOne() {
   setResultLoading();
 
   try {
-    const response = await fetch("/api/clone-one", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        budget: projectConfig.budget,
-        cpaBid: projectConfig.cpaBid,
-        projectName: projectNameForCreate,
-        projectStatus: projectConfig.projectStatus,
-        startDate: projectConfig.startDate,
-        endDate: projectConfig.endDate,
-        projectContent: {
-          landingType: projectConfig.landingType,
-          adType: projectConfig.adType,
-          deliveryType: projectConfig.deliveryType,
-          deliveryMode: projectConfig.deliveryMode,
-          marketingGoal: projectConfig.marketingGoal,
-          relatedTask: projectConfig.relatedTask,
-          deliveryProduct: projectConfig.deliveryProduct,
-          externalAction: projectConfig.externalAction,
-          deepExternalAction: projectConfig.deepExternalAction,
-          microMatchMode: projectConfig.microMatchMode,
-          workbenchVersion: projectConfig.workbenchVersion,
-          microAppInstanceId: projectConfig.microAppInstanceId,
-          inventoryCatalog: projectConfig.inventoryCatalog,
-          audienceSource: projectConfig.audienceSource,
-          budgetConfigMode: projectConfig.budgetConfigMode,
-          scheduleType: projectConfig.scheduleType,
-          scheduleTimeMode: projectConfig.scheduleTimeMode,
-          bidStrategy: projectConfig.bidStrategy,
-          budgetMode: projectConfig.budgetMode,
-          pricing: projectConfig.pricing,
-          budgetOptimizeSwitch: projectConfig.budgetOptimizeSwitch,
-          bidBudgetMode: projectConfig.bidBudgetMode,
-        },
-        promotion: Object.assign({}, adInfoConfig, {
-          name: promotionNameForCreate,
-        }),
-        creative: creativeConfig,
-        titlePack: titlePackConfig,
-        landing: landingConfig,
-        nameSuffix: projectRandomSuffix.checked ? undefined : "复制",
-        advertiserId: selectedAdvertiser ? selectedAdvertiser.advertiser_id : undefined,
+    const localVideos = selectedLocalVideos();
+    const payload = {
+      budget: projectConfig.budget,
+      cpaBid: projectConfig.cpaBid,
+      projectName: projectNameForCreate,
+      projectStatus: projectConfig.projectStatus,
+      startDate: projectConfig.startDate,
+      endDate: projectConfig.endDate,
+      projectContent: {
+        landingType: projectConfig.landingType,
+        adType: projectConfig.adType,
+        deliveryType: projectConfig.deliveryType,
+        deliveryMode: projectConfig.deliveryMode,
+        marketingGoal: projectConfig.marketingGoal,
+        relatedTask: projectConfig.relatedTask,
+        deliveryProduct: projectConfig.deliveryProduct,
+        externalAction: projectConfig.externalAction,
+        deepExternalAction: projectConfig.deepExternalAction,
+        microMatchMode: projectConfig.microMatchMode,
+        workbenchVersion: projectConfig.workbenchVersion,
+        microAppInstanceId: projectConfig.microAppInstanceId,
+        inventoryCatalog: projectConfig.inventoryCatalog,
+        audienceSource: projectConfig.audienceSource,
+        budgetConfigMode: projectConfig.budgetConfigMode,
+        scheduleType: projectConfig.scheduleType,
+        scheduleTimeMode: projectConfig.scheduleTimeMode,
+        bidStrategy: projectConfig.bidStrategy,
+        budgetMode: projectConfig.budgetMode,
+        pricing: projectConfig.pricing,
+        budgetOptimizeSwitch: projectConfig.budgetOptimizeSwitch,
+        bidBudgetMode: projectConfig.bidBudgetMode,
+      },
+      promotion: Object.assign({}, adInfoConfig, {
+        name: promotionNameForCreate,
       }),
-    });
+      creative: Object.assign({}, creativeConfig, {
+        videoSource: localVideos.length ? "LOCAL_UPLOAD" : "MANUAL_ID",
+      }),
+      titlePack: titlePackConfig,
+      landing: landingConfig,
+      nameSuffix: projectRandomSuffix.checked ? undefined : "复制",
+      advertiserIds: selectedAdvertisers.map((item) => item.advertiser_id),
+    };
+
+    let response;
+    if (localVideos.length) {
+      const formData = new FormData();
+      formData.append("payload", JSON.stringify(payload));
+      localVideos.forEach((file) => formData.append("localVideos", file, file.name));
+      response = await fetch("/api/clone-one", {
+        method: "POST",
+        body: formData,
+      });
+    } else {
+      response = await fetch("/api/clone-one", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
     const result = await response.json();
     if (!response.ok || result.code !== 0) {
       throw new Error(result.message || "接口返回异常");
@@ -632,12 +734,38 @@ function filteredAdvertisers() {
   });
 }
 
+function primarySelectedAdvertiser() {
+  return selectedAdvertisers[0] || null;
+}
+
+function isAdvertiserSelected(advertiserId) {
+  return selectedAdvertisers.some((item) => item.advertiser_id === advertiserId);
+}
+
+function toggleAdvertiserSelection(advertiser) {
+  if (!advertiser) return;
+  const index = selectedAdvertisers.findIndex((item) => item.advertiser_id === advertiser.advertiser_id);
+  if (index >= 0) {
+    selectedAdvertisers.splice(index, 1);
+    return;
+  }
+  if (selectedAdvertisers.length >= MAX_SELECTED_ADVERTISERS) {
+    alert(`最多可同时选择 ${MAX_SELECTED_ADVERTISERS} 个媒体账户`);
+    return;
+  }
+  selectedAdvertisers.push(advertiser);
+}
+
 function renderSelectedAccount() {
-  selectedAccountCount.textContent = selectedAdvertiser ? "1" : "0";
-  selectedAccountName.textContent = selectedAdvertiser
-    ? `${selectedAdvertiser.advertiser_name} / ${selectedAdvertiser.advertiser_id}`
-    : "暂无";
-  confirmAccount.classList.toggle("is-ready", Boolean(selectedAdvertiser));
+  selectedAccountCount.textContent = String(selectedAdvertisers.length);
+  if (!selectedAdvertisers.length) {
+    selectedAccountName.textContent = "暂无";
+  } else {
+    selectedAccountName.innerHTML = selectedAdvertisers.map((item) => `
+      <span class="selected-account-item">${escapeHtml(item.advertiser_name)} / ${escapeHtml(item.advertiser_id)}</span>
+    `).join("");
+  }
+  confirmAccount.classList.toggle("is-ready", Boolean(selectedAdvertisers.length));
 }
 
 function renderAdvertisers() {
@@ -650,10 +778,10 @@ function renderAdvertisers() {
   }
 
   accountRows.innerHTML = list.map((item) => {
-    const selected = selectedAdvertiser && selectedAdvertiser.advertiser_id === item.advertiser_id;
+    const selected = isAdvertiserSelected(item.advertiser_id);
     return `
       <tr class="${selected ? "is-selected" : ""}" data-advertiser-id="${escapeHtml(item.advertiser_id)}">
-        <td><input type="radio" name="advertiser" ${selected ? "checked" : ""}></td>
+        <td><input type="checkbox" ${selected ? "checked" : ""} aria-label="选择媒体账户"></td>
         <td>
           <strong>${escapeHtml(item.advertiser_name)}</strong>
           <span class="sub-id">ID：${escapeHtml(item.advertiser_id)}</span>
@@ -680,9 +808,14 @@ async function loadAdvertisers() {
     if (result.warnings && result.warnings.length) {
       accountWarning.textContent = `子账号列表权限不足：请重新授权并勾选 ${result.warnings[0].api}`;
     }
+    const selectedIds = new Set(selectedAdvertisers.map((item) => item.advertiser_id));
     advertisers = (result.data && result.data.list ? result.data.list : []).map(normalizeAdvertiser);
-    if (!selectedAdvertiser && advertisers.length === 1) {
-      selectedAdvertiser = advertisers[0];
+    selectedAdvertisers = Array.from(selectedIds)
+      .map((advertiserId) => advertisers.find((item) => item.advertiser_id === advertiserId))
+      .filter(Boolean)
+      .slice(0, MAX_SELECTED_ADVERTISERS);
+    if (!selectedAdvertisers.length && advertisers.length === 1) {
+      selectedAdvertisers = [advertisers[0]];
     }
     renderAdvertisers();
   } catch (error) {
@@ -703,9 +836,15 @@ function closeModal() {
 }
 
 function confirmSelectedAccount() {
-  if (!selectedAdvertiser) return;
-  account.value = `广告主 ${selectedAdvertiser.advertiser_id}`;
-  account.title = selectedAdvertiser.advertiser_name;
+  if (!selectedAdvertisers.length) return;
+  if (selectedAdvertisers.length === 1) {
+    account.value = `广告主 ${selectedAdvertisers[0].advertiser_id}`;
+  } else {
+    account.value = `已选 ${selectedAdvertisers.length} 个媒体账户`;
+  }
+  account.title = selectedAdvertisers
+    .map((item) => `${item.advertiser_name} / ${item.advertiser_id}`)
+    .join("\n");
   syncState();
   closeModal();
 }
@@ -732,7 +871,7 @@ function openProjectModal() {
   setRadioValue("bidStrategy", projectConfig.bidStrategy || "CUSTOM");
   setRadioValue("budgetMode", projectConfig.budgetMode || "BUDGET_MODE_DAY");
   setRadioValue("pricing", projectConfig.pricing || "PRICING_OCPM");
-  setRadioValue("budgetOptimizeSwitch", projectConfig.budgetOptimizeSwitch || "ON");
+  setRadioValue("budgetOptimizeSwitch", projectConfig.budgetOptimizeSwitch || "OFF");
   setRadioValue("bidBudgetMode", projectConfig.bidBudgetMode || "UNIFIED");
   updateBidStrategyPreview();
   projectExternalAction.value = projectConfig.externalAction || "AD_CONVERT_TYPE_GAME_ADDICTION";
@@ -787,7 +926,7 @@ function saveProjectDialog() {
     bidStrategy: getRadioValue("bidStrategy") || "CUSTOM",
     budgetMode: getRadioValue("budgetMode") || "BUDGET_MODE_DAY",
     pricing: getRadioValue("pricing") || "PRICING_OCPM",
-    budgetOptimizeSwitch: getRadioValue("budgetOptimizeSwitch") || "ON",
+    budgetOptimizeSwitch: getRadioValue("budgetOptimizeSwitch") || "OFF",
     bidBudgetMode: getRadioValue("bidBudgetMode") || "UNIFIED",
   };
   localStorage.setItem("oceanengineProjectConfig", JSON.stringify(projectConfig));
@@ -848,7 +987,8 @@ async function loadMiniGames() {
     renderMiniGames("请通过 http://localhost:5173 打开页面后再查询小游戏。");
     return;
   }
-  const advertiserId = selectedAdvertiser ? selectedAdvertiser.advertiser_id : "";
+  const advertiser = primarySelectedAdvertiser();
+  const advertiserId = advertiser ? advertiser.advertiser_id : "";
   if (!advertiserId) {
     renderMiniGames("请先选择媒体账户，再查询该账户有权限的小游戏。");
     return;
@@ -925,18 +1065,31 @@ function setRadioValue(name, value) {
 
 function updateBidStrategyPreview() {
   const strategy = getRadioValue("bidStrategy") || projectConfig.bidStrategy || "CUSTOM";
+  const supportsBudgetOptimize = strategy === "NO_BID";
   if (bidStrategyPreview) {
     bidStrategyPreview.textContent = bidStrategyText(strategy);
   }
   if (projectCpaBid) {
     projectCpaBid.disabled = strategy === "NO_BID";
   }
+  if (!supportsBudgetOptimize) {
+    setRadioValue("budgetOptimizeSwitch", "OFF");
+  }
+  document.querySelectorAll('input[name="budgetOptimizeSwitch"]').forEach((input) => {
+    input.disabled = !supportsBudgetOptimize;
+    input.closest("label").classList.toggle("is-disabled", !supportsBudgetOptimize);
+  });
 }
 
 function openAdInfoModal() {
-  callToActionButtons.value = adInfoConfig.callToActionButtons.join(",");
+  adIdentity.value = adInfoConfig.identity || "AWEME";
+  awemeSource.value = adInfoConfig.awemeSource || "MANUAL";
+  awemeMatchMode.value = adInfoConfig.awemeMatchMode || "ALL";
+  awemeAccountId.value = adInfoConfig.awemeId || "";
+  awemeAccountName.value = adInfoConfig.awemeName || "";
+  callToActionButtons.value = (adInfoConfig.callToActionButtons || []).join("\n");
   adProductName.value = adInfoConfig.productName;
-  adSellingPoint.value = adInfoConfig.sellingPoint;
+  adSellingPoint.value = (adInfoConfig.sellingPoints || []).join("\n");
   adSource.value = adInfoConfig.source;
   commentDisable.value = adInfoConfig.commentDisable;
   promotionName.value = adInfoConfig.name;
@@ -951,15 +1104,21 @@ function closeAdInfoDialog() {
 }
 
 function saveAdInfoDialog() {
-  const buttons = callToActionButtons.value.split(/[,，]/).map((item) => item.trim()).filter(Boolean);
+  const buttons = splitLimitedList(callToActionButtons.value, 10);
+  const sellingPoints = splitLimitedList(adSellingPoint.value, 10);
   adInfoConfig = {
     name: promotionName.value.trim() || "0421-高手来挪车-3-动态-top-16-复制",
     status: promotionStatus.value,
+    identity: adIdentity.value,
+    awemeSource: awemeSource.value,
+    awemeMatchMode: awemeMatchMode.value,
+    awemeId: awemeAccountId.value.trim(),
+    awemeName: awemeAccountName.value.trim(),
     source: adSource.value.trim() || "高手来挪车",
     commentDisable: commentDisable.value,
     callToActionButtons: buttons.length ? buttons : ["开始游戏", "点击即玩"],
     productName: adProductName.value.trim() || "高手来挪车",
-    sellingPoint: adSellingPoint.value.trim() || "无限下载，点击即玩",
+    sellingPoints: sellingPoints.length ? sellingPoints : ["无限下载，点击即玩"],
   };
   localStorage.setItem("oceanengineAdInfoConfig", JSON.stringify(adInfoConfig));
   renderProjectSummary();
@@ -970,21 +1129,198 @@ function linesFromTextarea(element) {
   return element.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
 }
 
+function splitLimitedList(value, limit) {
+  return String(value || "")
+    .split(/[\r\n,，]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function normalizeAwemeAccount(item) {
+  const id = item.aweme_id || item.awemeId || item.id || item.uid || item.open_id || item.account_id;
+  return {
+    id: id == null ? "" : String(id),
+    name: item.aweme_name || item.awemeName || item.nickname || item.name || item.account_name || "--",
+    status: item.status || item.auth_status || item.aweme_status || item.audit_status || "--",
+    raw: item,
+  };
+}
+
+function filteredAwemeAccounts() {
+  const keyword = awemeKeyword.value.trim().toLowerCase();
+  if (!keyword) return awemeAccounts;
+  return awemeAccounts.filter((item) => (
+    item.name.toLowerCase().includes(keyword) ||
+    item.id.toLowerCase().includes(keyword)
+  ));
+}
+
+function renderAwemeAccounts(errorMessage) {
+  if (errorMessage) {
+    awemeRows.innerHTML = `<tr><td colspan="4" class="table-empty">${escapeHtml(errorMessage)}</td></tr>`;
+    awemePageInfo.textContent = "共 0 条记录";
+    return;
+  }
+
+  const list = filteredAwemeAccounts();
+  awemePageInfo.textContent = `共 ${list.length} 条记录`;
+  if (!list.length) {
+    awemeRows.innerHTML = `<tr><td colspan="4" class="table-empty">当前媒体账户未返回授权抖音号，可手动填写抖音号 ID。</td></tr>`;
+    return;
+  }
+
+  awemeRows.innerHTML = list.map((item) => `
+    <tr>
+      <td><strong>${escapeHtml(item.name)}</strong></td>
+      <td>${escapeHtml(item.id)}</td>
+      <td>${escapeHtml(item.status)}</td>
+      <td><button class="link-button" data-aweme-id="${escapeHtml(item.id)}" type="button">使用</button></td>
+    </tr>
+  `).join("");
+}
+
+async function loadAwemeAccounts() {
+  const advertiser = primarySelectedAdvertiser();
+  if (!advertiser) {
+    renderAwemeAccounts("请先选择媒体账户，再选择抖音号。");
+    return;
+  }
+
+  awemeRows.innerHTML = `<tr><td colspan="4" class="table-empty">加载中...</td></tr>`;
+  try {
+    const params = new URLSearchParams({
+      advertiser_id: advertiser.advertiser_id,
+      page: "1",
+      page_size: "100",
+    });
+    const response = await fetch(`/api/aweme-accounts?${params.toString()}`);
+    const result = await response.json();
+    if (!response.ok || result.code !== 0) {
+      throw new Error(result.message || "抖音号列表加载失败");
+    }
+    awemeAccounts = (result.data && result.data.list ? result.data.list : []).map(normalizeAwemeAccount).filter((item) => item.id);
+    renderAwemeAccounts();
+  } catch (error) {
+    awemeAccounts = [];
+    renderAwemeAccounts(error.message);
+  }
+}
+
+function openAwemeModal() {
+  awemeModal.classList.add("is-open");
+  awemeModal.setAttribute("aria-hidden", "false");
+  loadAwemeAccounts();
+}
+
+function closeAwemeDialog() {
+  awemeModal.classList.remove("is-open");
+  awemeModal.setAttribute("aria-hidden", "true");
+}
+
+function useAwemeAccount(id) {
+  const item = awemeAccounts.find((accountItem) => accountItem.id === id);
+  if (!item) return;
+  awemeAccountId.value = item.id;
+  awemeAccountName.value = item.name;
+  adIdentity.value = "AWEME";
+  awemeSource.value = "MANUAL";
+  closeAwemeDialog();
+}
+
+function isVideoFile(file) {
+  return file && (file.type.startsWith("video/") || /\.(mp4|mov|m4v|avi|wmv|flv|mkv|webm)$/i.test(file.name));
+}
+
+function addLocalVideoFiles(fileList) {
+  const existing = new Set(localVideoPool.map((item) => `${item.file.name}:${item.file.size}:${item.file.lastModified}`));
+  Array.from(fileList || []).forEach((file) => {
+    if (!isVideoFile(file)) return;
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (existing.has(key)) return;
+    existing.add(key);
+    localVideoPool.push({
+      id: key,
+      file,
+      selected: true,
+      path: file.webkitRelativePath || file.name,
+    });
+  });
+  renderLocalVideoPool();
+  renderCreativeSummary();
+}
+
+function selectedLocalVideos() {
+  return localVideoPool.filter((item) => item.selected).map((item) => item.file);
+}
+
+function formatFileSize(size) {
+  if (!Number.isFinite(size)) return "--";
+  if (size >= 1024 * 1024 * 1024) return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${size} B`;
+}
+
+function renderLocalVideoPool() {
+  if (!localVideoList || !localVideoStatus) return;
+  const selectedCount = localVideoPool.filter((item) => item.selected).length;
+  localVideoStatus.textContent = localVideoPool.length
+    ? `已导入 ${localVideoPool.length} 个视频，已选择 ${selectedCount} 个；执行创建时上传到所选广告主账户。`
+    : "未选择本地视频，默认使用下方视频 ID 或样例视频。";
+
+  if (!localVideoPool.length) {
+    localVideoList.innerHTML = `<div class="local-video-empty">可选择多个视频，或选择整个文件夹后随机抽取。</div>`;
+    return;
+  }
+
+  localVideoList.innerHTML = localVideoPool.map((item) => `
+    <label class="local-video-row">
+      <input type="checkbox" data-local-video-id="${escapeHtml(item.id)}" ${item.selected ? "checked" : ""}>
+      <span>${escapeHtml(item.path)}</span>
+      <small>${escapeHtml(formatFileSize(item.file.size))}</small>
+    </label>
+  `).join("");
+}
+
+function randomPickLocalVideos(event) {
+  event.preventDefault();
+  if (!localVideoPool.length) return;
+  const desired = Math.max(1, Math.min(localVideoPool.length, Number(videoCount.value || localVideoPool.length)));
+  const shuffled = localVideoPool
+    .map((item) => ({ item, sort: Math.random() }))
+    .sort((a, b) => a.sort - b.sort)
+    .map((entry) => entry.item);
+  const selectedIds = new Set(shuffled.slice(0, desired).map((item) => item.id));
+  localVideoPool = localVideoPool.map((item) => ({
+    ...item,
+    selected: selectedIds.has(item.id),
+  }));
+  renderLocalVideoPool();
+  renderCreativeSummary();
+}
+
+function clearLocalVideoPool(event) {
+  event.preventDefault();
+  localVideoPool = [];
+  if (localVideoFilesInput) localVideoFilesInput.value = "";
+  if (localVideoFolderInput) localVideoFolderInput.value = "";
+  renderLocalVideoPool();
+  renderCreativeSummary();
+}
+
 function openCreativeModal() {
   dynamicCreativeSwitch.value = creativeConfig.dynamicCreativeSwitch || "ON";
   videoHpVisibility.value = creativeConfig.videoHpVisibility || "HIDE_VIDEO_ON_HP";
   creativeGroupCount.value = creativeConfig.groupCount || 1;
   videoCount.value = (creativeConfig.videoIds || []).length;
-  imageCount.value = (creativeConfig.productImageIds || []).length;
-  titleCount.value = (creativeConfig.titles || []).length;
+  imageCount.value = 0;
+  titleCount.value = 0;
   creativeGroupName.value = creativeConfig.groupName || "创意组01";
   videoIds.value = (creativeConfig.videoIds || []).join("\n");
   videoCoverIds.value = (creativeConfig.videoCoverIds || []).join("\n");
-  creativeTitles.value = (creativeConfig.titles || []).join("\n");
-  externalUrls.value = (creativeConfig.externalUrls || []).join("\n");
-  productImageIds.value = (creativeConfig.productImageIds || []).join("\n");
-  titleWordLists.value = (creativeConfig.titleWordLists || []).join("\n");
   creativeEstimate.textContent = `已选创意组：${creativeConfig.groupCount || 1}/500`;
+  renderLocalVideoPool();
   creativeModal.classList.add("is-open");
   creativeModal.setAttribute("aria-hidden", "false");
 }
@@ -1007,11 +1343,12 @@ function saveCreativeDialog() {
     dynamicCreativeSwitch: dynamicCreativeSwitch.value,
     videoHpVisibility: videoHpVisibility.value,
     videoIds: linesFromTextarea(videoIds),
-    videoCoverIds: linesFromTextarea(videoCoverIds),
-    titles: linesFromTextarea(creativeTitles),
-    titleWordLists: linesFromTextarea(titleWordLists),
-    externalUrls: linesFromTextarea(externalUrls),
-    productImageIds: linesFromTextarea(productImageIds),
+    videoCoverIds: selectedLocalVideos().length ? [] : linesFromTextarea(videoCoverIds),
+    localVideoNames: selectedLocalVideos().map((file) => file.name),
+    titles: [],
+    titleWordLists: [],
+    externalUrls: [],
+    productImageIds: [],
   };
 
   creativeConfig = Object.assign({}, defaultCreativeConfig, next);
@@ -1029,11 +1366,13 @@ function clearCreativeConfig(event) {
     videoHpVisibility: "HIDE_VIDEO_ON_HP",
     videoIds: [],
     videoCoverIds: [],
+    localVideoNames: [],
     titles: [],
     titleWordLists: [],
     externalUrls: [],
     productImageIds: [],
   };
+  localVideoPool = [];
   localStorage.setItem("oceanengineCreativeConfig", JSON.stringify(creativeConfig));
   renderCreativeSummary();
 }
@@ -1126,6 +1465,7 @@ function selectedLandingItems() {
   return (landingConfig.urls || []).map((url, index) => ({
     url,
     name: (landingConfig.names || [])[index] || `落地页-${index + 1}`,
+    selected: !Array.isArray(landingConfig.selectedUrls) || landingConfig.selectedUrls.includes(url),
   }));
 }
 
@@ -1141,7 +1481,7 @@ function renderLandingRows() {
   }
   landingRows.innerHTML = items.map((item, index) => `
     <tr data-landing-index="${index}">
-      <td><input type="checkbox" checked></td>
+      <td><input type="checkbox" data-landing-url="${escapeHtml(item.url)}" ${item.selected ? "checked" : ""}></td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(String(index + 1059))}</td>
       <td>1</td>
@@ -1151,6 +1491,9 @@ function renderLandingRows() {
 }
 
 function openLandingModal() {
+  if (!Array.isArray(landingConfig.selectedUrls)) {
+    landingConfig.selectedUrls = (landingConfig.urls || []).slice();
+  }
   landingPerPromotion.value = landingConfig.perPromotion || 1;
   landingTypeSource.value = landingConfig.type || "ORANGE";
   landingOnlyDeliverable.value = landingConfig.onlyDeliverable || "ON";
@@ -1158,7 +1501,7 @@ function openLandingModal() {
   setRadioValue("landingDistribution", landingConfig.distribution || "SAME");
   landingUrls.value = (landingConfig.urls || []).join("\n");
   landingNames.value = (landingConfig.names || []).join("\n");
-  landingEstimate.textContent = `已选：${(landingConfig.urls || []).length}/${landingConfig.perPromotion || 1}`;
+  landingEstimate.textContent = `已选：${(landingConfig.selectedUrls || []).length}/${landingConfig.perPromotion || 1}`;
   renderLandingRows();
   landingModal.classList.add("is-open");
   landingModal.setAttribute("aria-hidden", "false");
@@ -1171,6 +1514,14 @@ function closeLandingDialog() {
 
 function saveLandingDialog() {
   const urls = linesFromTextarea(landingUrls);
+  const names = linesFromTextarea(landingNames);
+  const selectedUrlSet = new Set(Array.isArray(landingConfig.selectedUrls) ? landingConfig.selectedUrls : urls);
+  const selectedUrls = urls.filter((url) => selectedUrlSet.has(url));
+  const selectedNames = urls
+    .map((url, index) => ({ url, name: names[index] }))
+    .filter((item) => selectedUrlSet.has(item.url))
+    .map((item) => item.name)
+    .filter(Boolean);
   const perPromotion = Number(landingPerPromotion.value || 1);
   if (!Number.isFinite(perPromotion) || perPromotion < 1 || perPromotion > 20) {
     alert("每个广告配置的落地页数量必须在 1-20 之间");
@@ -1183,8 +1534,9 @@ function saveLandingDialog() {
     distribution: getRadioValue("landingDistribution") || "SAME",
     onlyDeliverable: landingOnlyDeliverable.value,
     keyword: landingSearchKeyword.value.trim(),
-    urls,
-    names: linesFromTextarea(landingNames),
+    urls: selectedUrls.length ? selectedUrls : urls,
+    names: selectedNames.length ? selectedNames : names,
+    selectedUrls: selectedUrls.length ? selectedUrls : urls,
   };
   localStorage.setItem("oceanengineLandingConfig", JSON.stringify(landingConfig));
   renderLandingSummary();
@@ -1196,6 +1548,7 @@ function clearLandingConfig(event) {
   landingConfig = Object.assign({}, defaultLandingConfig, {
     urls: [],
     names: [],
+    selectedUrls: [],
   });
   localStorage.setItem("oceanengineLandingConfig", JSON.stringify(landingConfig));
   renderLandingSummary();
@@ -1211,14 +1564,15 @@ clearAccountSearch.addEventListener("click", () => {
   renderAdvertisers();
 });
 clearSelectedAccount.addEventListener("click", () => {
-  selectedAdvertiser = null;
+  selectedAdvertisers = [];
   renderAdvertisers();
 });
 confirmAccount.addEventListener("click", confirmSelectedAccount);
 accountRows.addEventListener("click", (event) => {
   const row = event.target.closest("tr[data-advertiser-id]");
   if (!row) return;
-  selectedAdvertiser = advertisers.find((item) => item.advertiser_id === row.dataset.advertiserId) || null;
+  const advertiser = advertisers.find((item) => item.advertiser_id === row.dataset.advertiserId);
+  toggleAdvertiserSelection(advertiser);
   renderAdvertisers();
 });
 
@@ -1230,11 +1584,38 @@ editAdInfo.addEventListener("click", openAdInfoModal);
 closeAdInfoModal.addEventListener("click", closeAdInfoDialog);
 cancelAdInfoModal.addEventListener("click", closeAdInfoDialog);
 saveAdInfoConfig.addEventListener("click", saveAdInfoDialog);
+selectAwemeAccount.addEventListener("click", openAwemeModal);
+closeAwemeModal.addEventListener("click", closeAwemeDialog);
+reloadAwemeAccounts.addEventListener("click", loadAwemeAccounts);
+awemeSearch.addEventListener("click", renderAwemeAccounts);
+awemeKeyword.addEventListener("input", renderAwemeAccounts);
+awemeRows.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-aweme-id]");
+  if (!button) return;
+  useAwemeAccount(button.dataset.awemeId);
+});
 editCreative.addEventListener("click", openCreativeModal);
 closeCreativeModal.addEventListener("click", closeCreativeDialog);
 cancelCreativeModal.addEventListener("click", closeCreativeDialog);
 saveCreativeConfig.addEventListener("click", saveCreativeDialog);
 clearCreative.addEventListener("click", clearCreativeConfig);
+chooseVideoFiles.addEventListener("click", () => localVideoFilesInput.click());
+chooseVideoFolder.addEventListener("click", () => localVideoFolderInput.click());
+localVideoFilesInput.addEventListener("change", () => addLocalVideoFiles(localVideoFilesInput.files));
+localVideoFolderInput.addEventListener("change", () => addLocalVideoFiles(localVideoFolderInput.files));
+randomLocalVideos.addEventListener("click", randomPickLocalVideos);
+clearLocalVideos.addEventListener("click", clearLocalVideoPool);
+localVideoList.addEventListener("change", (event) => {
+  const checkbox = event.target.closest('input[data-local-video-id]');
+  if (!checkbox) return;
+  localVideoPool = localVideoPool.map((item) => (
+    item.id === checkbox.dataset.localVideoId
+      ? { ...item, selected: checkbox.checked }
+      : item
+  ));
+  renderLocalVideoPool();
+  renderCreativeSummary();
+});
 editTitlePack.addEventListener("click", openTitlePackModal);
 closeTitlePackModal.addEventListener("click", closeTitlePackDialog);
 cancelTitlePackModal.addEventListener("click", closeTitlePackDialog);
@@ -1251,6 +1632,18 @@ landingSearchKeyword.addEventListener("input", renderLandingRows);
 landingClearSearch.addEventListener("click", () => {
   landingSearchKeyword.value = "";
   renderLandingRows();
+});
+landingRows.addEventListener("change", (event) => {
+  const checkbox = event.target.closest('input[data-landing-url]');
+  if (!checkbox) return;
+  const selected = new Set(Array.isArray(landingConfig.selectedUrls) ? landingConfig.selectedUrls : (landingConfig.urls || []));
+  if (checkbox.checked) {
+    selected.add(checkbox.dataset.landingUrl);
+  } else {
+    selected.delete(checkbox.dataset.landingUrl);
+  }
+  landingConfig.selectedUrls = Array.from(selected);
+  landingEstimate.textContent = `已选：${landingConfig.selectedUrls.length}/${landingConfig.perPromotion || 1}`;
 });
 landingOpenOrange.addEventListener("click", () => {
   alert("当前先使用已填写的落地页链接创建。后续可继续接入橙子建站/落地页资产列表接口。");
