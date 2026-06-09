@@ -509,6 +509,24 @@ function landingDistributionText(value) {
   return map[value] || "全部相同";
 }
 
+function landingSelectionLimit() {
+  const perPromotion = Math.max(1, Number(landingPerPromotion && landingPerPromotion.value || landingConfig.perPromotion || 1));
+  const distribution = getRadioValue("landingDistribution") || landingConfig.distribution || "SAME";
+  if (distribution === "PROMOTION") {
+    return perPromotion * Math.max(1, Number(creativeConfig.groupCount || 1));
+  }
+  if (distribution === "ACCOUNT" || distribution === "PROJECT") {
+    return perPromotion * Math.max(1, selectedAdvertisers.length || 1);
+  }
+  return perPromotion;
+}
+
+function updateLandingEstimate() {
+  if (!landingEstimate) return;
+  const selectedCount = Array.isArray(landingConfig.selectedUrls) ? landingConfig.selectedUrls.length : 0;
+  landingEstimate.textContent = `已选：${selectedCount}/${landingSelectionLimit()}`;
+}
+
 function setResultLoading() {
   const accountCount = selectedAdvertisers.length || 1;
   resultPanel.classList.add("has-result");
@@ -1484,6 +1502,7 @@ function selectedLandingItems() {
   return (landingConfig.urls || []).map((url, index) => ({
     url,
     name: (landingConfig.names || [])[index] || `落地页-${index + 1}`,
+    id: (landingConfig.ids || [])[index] || String(index + 1059),
     selected: !Array.isArray(landingConfig.selectedUrls) || landingConfig.selectedUrls.includes(url),
   }));
 }
@@ -1502,11 +1521,55 @@ function renderLandingRows() {
     <tr data-landing-index="${index}">
       <td><input type="checkbox" data-landing-url="${escapeHtml(item.url)}" ${item.selected ? "checked" : ""}></td>
       <td>${escapeHtml(item.name)}</td>
-      <td>${escapeHtml(String(index + 1059))}</td>
+      <td>${escapeHtml(item.id || String(index + 1059))}</td>
       <td>1</td>
       <td><a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">预览</a></td>
     </tr>
   `).join("");
+}
+
+async function loadLandingPages(event) {
+  if (event) event.preventDefault();
+  if (!location.protocol.startsWith("http")) return;
+  const advertiser = primarySelectedAdvertiser();
+  const currentExternalAction = projectExternalAction && projectExternalAction.value
+    ? projectExternalAction.value
+    : projectConfig.externalAction || "";
+  const currentMicroAppInstanceId = microAppInstanceId && microAppInstanceId.value
+    ? microAppInstanceId.value.trim()
+    : projectConfig.microAppInstanceId || "";
+  const params = new URLSearchParams({
+    advertiser_id: advertiser ? advertiser.advertiser_id : "",
+    external_action: currentExternalAction,
+    micro_app_instance_id: currentMicroAppInstanceId,
+    current_time: new Date().toISOString(),
+    keyword: landingSearchKeyword.value.trim(),
+    page: "1",
+    page_size: "100",
+  });
+  landingRows.innerHTML = `<tr><td colspan="5" class="table-empty">加载中...</td></tr>`;
+  try {
+    const response = await fetch(`/api/landing-pages?${params.toString()}`);
+    const result = await response.json();
+    if (!response.ok || result.code !== 0) {
+      throw new Error(result.message || "落地页列表获取失败");
+    }
+    const list = result.data && Array.isArray(result.data.list) ? result.data.list : [];
+    if (!list.length) {
+      landingRows.innerHTML = `<tr><td colspan="5" class="table-empty">账号内暂无可选落地页</td></tr>`;
+      return;
+    }
+    landingConfig.ids = list.map((item) => item.id);
+    landingConfig.urls = list.map((item) => item.url);
+    landingConfig.names = list.map((item) => item.name);
+    landingConfig.selectedUrls = list.slice(0, landingSelectionLimit()).map((item) => item.url);
+    landingUrls.value = landingConfig.urls.join("\n");
+    landingNames.value = landingConfig.names.join("\n");
+    renderLandingRows();
+    updateLandingEstimate();
+  } catch (error) {
+    landingRows.innerHTML = `<tr><td colspan="5" class="table-empty">${escapeHtml(error.message)}</td></tr>`;
+  }
 }
 
 function openLandingModal() {
@@ -1522,8 +1585,10 @@ function openLandingModal() {
   landingNames.value = (landingConfig.names || []).join("\n");
   landingEstimate.textContent = `已选：${(landingConfig.selectedUrls || []).length}/${landingConfig.perPromotion || 1}`;
   renderLandingRows();
+  updateLandingEstimate();
   landingModal.classList.add("is-open");
   landingModal.setAttribute("aria-hidden", "false");
+  loadLandingPages();
 }
 
 function closeLandingDialog() {
@@ -1547,12 +1612,19 @@ function saveLandingDialog() {
     return;
   }
 
+  const limit = landingSelectionLimit();
+  if (selectedUrls.length > limit) {
+    alert(`最多只能选择 ${limit} 个落地页`);
+    return;
+  }
+
   landingConfig = {
     perPromotion,
     type: landingTypeSource.value,
     distribution: getRadioValue("landingDistribution") || "SAME",
     onlyDeliverable: landingOnlyDeliverable.value,
     keyword: landingSearchKeyword.value.trim(),
+    ids: (landingConfig.ids || []).filter((id, index) => (selectedUrls.length ? selectedUrls : urls).includes(urls[index])),
     urls: selectedUrls.length ? selectedUrls : urls,
     names: selectedNames.length ? selectedNames : names,
     selectedUrls: selectedUrls.length ? selectedUrls : urls,
@@ -1646,8 +1718,12 @@ closeLandingModal.addEventListener("click", closeLandingDialog);
 cancelLandingModal.addEventListener("click", closeLandingDialog);
 saveLandingConfig.addEventListener("click", saveLandingDialog);
 clearLanding.addEventListener("click", clearLandingConfig);
-landingRefresh.addEventListener("click", renderLandingRows);
+landingRefresh.addEventListener("click", loadLandingPages);
 landingSearchKeyword.addEventListener("input", renderLandingRows);
+landingPerPromotion.addEventListener("input", updateLandingEstimate);
+document.querySelectorAll('input[name="landingDistribution"]').forEach((input) => {
+  input.addEventListener("change", updateLandingEstimate);
+});
 landingClearSearch.addEventListener("click", () => {
   landingSearchKeyword.value = "";
   renderLandingRows();
@@ -1657,12 +1733,20 @@ landingRows.addEventListener("change", (event) => {
   if (!checkbox) return;
   const selected = new Set(Array.isArray(landingConfig.selectedUrls) ? landingConfig.selectedUrls : (landingConfig.urls || []));
   if (checkbox.checked) {
+    const limit = landingSelectionLimit();
+    if (selected.size >= limit) {
+      checkbox.checked = false;
+      alert(`最多只能选择 ${limit} 个落地页`);
+      return;
+    }
     selected.add(checkbox.dataset.landingUrl);
   } else {
     selected.delete(checkbox.dataset.landingUrl);
   }
   landingConfig.selectedUrls = Array.from(selected);
+  updateLandingEstimate();
   landingEstimate.textContent = `已选：${landingConfig.selectedUrls.length}/${landingConfig.perPromotion || 1}`;
+  updateLandingEstimate();
 });
 landingOpenOrange.addEventListener("click", () => {
   alert("当前先使用已填写的落地页链接创建。后续可继续接入橙子建站/落地页资产列表接口。");

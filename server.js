@@ -240,6 +240,286 @@ function fallbackAwemeAccount() {
   }
 }
 
+function normalizeLandingPage(item) {
+  const siteId = item.site_id || item.siteId || item.id || item.asset_id || item.external_url_id || item.instance_id;
+  const rawUrl = item.external_url || item.site_url || item.url || item.preview_url || item.previewUrl || "";
+  const url = rawUrl || (siteId ? `https://www.chengzijianzhan.com/tetris/page/${siteId}/` : "");
+  return {
+    id: String(siteId || url || ""),
+    name: item.name || item.site_name || item.title || item.asset_name || `落地页-${siteId || ""}`,
+    url,
+    status: item.status || item.site_status || item.audit_status || item.delivery_status || "",
+    raw: item,
+  };
+}
+
+function collectRawValues(source, keyMatcher, values = []) {
+  if (source == null) return values;
+  if (Array.isArray(source)) {
+    source.forEach((item) => collectRawValues(item, keyMatcher, values));
+    return values;
+  }
+  if (typeof source !== "object") return values;
+  Object.entries(source).forEach(([key, value]) => {
+    if (keyMatcher(key)) values.push(value);
+    if (value && typeof value === "object") collectRawValues(value, keyMatcher, values);
+  });
+  return values;
+}
+
+function flattenValues(values) {
+  const output = [];
+  values.forEach((value) => {
+    if (value == null) return;
+    if (Array.isArray(value)) {
+      output.push(...flattenValues(value));
+    } else if (typeof value === "object") {
+      output.push(...flattenValues(Object.values(value)));
+    } else {
+      output.push(String(value));
+    }
+  });
+  return output;
+}
+
+function rawValueMatches(source, keyMatcher, expected) {
+  if (!expected) return true;
+  const normalized = String(expected).trim();
+  if (!normalized) return true;
+  const values = flattenValues(collectRawValues(source, keyMatcher));
+  if (!values.length) return false;
+  return values.some((value) => value === normalized || value.includes(normalized));
+}
+
+function parseLandingTime(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    const ms = value > 100000000000 ? value : value * 1000;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const text = String(value).trim();
+  if (/^\d+$/.test(text)) return parseLandingTime(Number(text));
+  const date = new Date(text.replace(/\//g, "-"));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function landingMatchesCurrentTime(raw, now) {
+  if (raw && raw.source === "promotion") {
+    return promotionAllowsCurrentTime(raw.promotion || raw, now);
+  }
+  const statusValues = flattenValues(collectRawValues(raw, (key) => /status|state|enable|deliver/i.test(key))).map((item) => item.toUpperCase());
+  const blockedStatus = statusValues.some((value) => /DELETE|DELETED|DISABLE|DISABLED|OFFLINE|REJECT|INVALID|EXPIRE|EXPIRED/.test(value));
+  if (blockedStatus) return false;
+
+  const startValues = collectRawValues(raw, (key) => /start.*time|begin.*time|effective.*start|valid.*start|start_date/i.test(key));
+  const endValues = collectRawValues(raw, (key) => /end.*time|expire.*time|effective.*end|valid.*end|end_date/i.test(key));
+  const startDates = flattenValues(startValues).map(parseLandingTime).filter(Boolean);
+  const endDates = flattenValues(endValues).map(parseLandingTime).filter(Boolean);
+  if (startDates.length && startDates.some((date) => date > now)) return false;
+  if (endDates.length && endDates.every((date) => date < now)) return false;
+  return true;
+}
+
+function filterLandingPages(list, filters) {
+  const now = parseLandingTime(filters.currentTime) || new Date();
+  return list.filter((item) => {
+    const raw = item.raw || {};
+    if (!landingMatchesCurrentTime(raw, now)) return false;
+    if (!rawValueMatches(raw, (key) => /external.*action|external_actions|optimi[sz]e.*goal|convert|conversion/i.test(key), filters.externalAction)) {
+      return false;
+    }
+    if (!rawValueMatches(raw, (key) => /micro.*app.*instance|micro.*app|mini.*game|game.*asset|instance_id|asset_id|app_id/i.test(key), filters.microAppInstanceId)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function extractLandingPageId(url) {
+  const match = String(url || "").match(/\/page\/([^/?#]+)/i);
+  return match ? match[1] : "";
+}
+
+function promotionAllowsCurrentTime(promotion, now) {
+  const schedule = String((promotion && promotion.schedule_time) || "");
+  if (schedule.length < 336) return true;
+  const date = now || new Date();
+  const jsDay = date.getDay();
+  const mondayFirstDay = jsDay === 0 ? 6 : jsDay - 1;
+  const slot = date.getHours() * 2 + (date.getMinutes() >= 30 ? 1 : 0);
+  return schedule[mondayFirstDay * 48 + slot] === "1";
+}
+
+function normalizeLandingFromPromotion(url, promotion, project, index) {
+  const id = extractLandingPageId(url) || String(url);
+  return {
+    id,
+    name: `${promotion.promotion_name || "单元落地页"}-${index + 1}`,
+    url,
+    status: promotion.status || promotion.opt_status || "",
+    raw: {
+      source: "promotion",
+      promotion,
+      project,
+      external_action: project && project.optimize_goal && project.optimize_goal.external_action,
+      micro_app_instance_id: project && project.micro_app_instance_id,
+      schedule_time: promotion.schedule_time || (project && project.schedule_time),
+    },
+  };
+}
+
+async function fetchProjectsByIds(advertiserId, projectIds) {
+  const ids = Array.from(new Set((projectIds || []).map((item) => String(item || "")).filter(Boolean)));
+  if (!ids.length) return new Map();
+  const result = await oceanGetWithAuth("/open_api/v3.0/project/list/", {
+    advertiser_id: advertiserId,
+    filtering: JSON.stringify({ project_ids: ids }),
+    page: 1,
+    page_size: Math.min(100, ids.length),
+  });
+  const map = new Map();
+  if (result.body && result.body.code === 0) {
+    const list = result.body.data && Array.isArray(result.body.data.list) ? result.body.data.list : [];
+    list.forEach((item) => map.set(String(item.project_id), item));
+  }
+  return map;
+}
+
+async function fetchLandingPagesFromPromotions(advertiserId, page, pageSize) {
+  const safePageSize = Math.min(20, positiveInt(pageSize, 20, 1, 20));
+  const result = await oceanGetWithAuth("/open_api/v3.0/promotion/list/", {
+    advertiser_id: advertiserId,
+    page,
+    page_size: safePageSize,
+  });
+  if (!result.body || result.body.code !== 0) {
+    return {
+      ok: false,
+      apiPath: "/open_api/v3.0/promotion/list/",
+      list: [],
+      pageInfo: { page, page_size: safePageSize, total_number: 0, total_page: 1 },
+      errors: [{
+        api: "/open_api/v3.0/promotion/list/",
+        code: result.body && result.body.code,
+        message: result.body && result.body.message,
+        help_message: result.body && result.body.help_message,
+      }],
+    };
+  }
+  const promotions = result.body.data && Array.isArray(result.body.data.list) ? result.body.data.list : [];
+  const projectMap = await fetchProjectsByIds(advertiserId, promotions.map((item) => item.project_id));
+  const seen = new Set();
+  const list = [];
+  const addPromotionLandings = (promotion, project) => {
+    const urls = promotion.promotion_materials && Array.isArray(promotion.promotion_materials.external_url_material_list)
+      ? promotion.promotion_materials.external_url_material_list
+      : [];
+    urls.forEach((landingUrl, index) => {
+      const key = String(landingUrl);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      list.push(normalizeLandingFromPromotion(landingUrl, promotion, project, index));
+    });
+  };
+
+  try {
+    const sourcePromotion = readJsonFile("data/source-promotions.json").data.list[0];
+    const sourceProject = readJsonFile("data/source-project.json").data.list[0];
+    if (String(sourcePromotion.advertiser_id || advertiserId) === String(advertiserId)) {
+      addPromotionLandings(sourcePromotion, sourceProject);
+    }
+  } catch (error) {
+    // Source files are optional for landing-page discovery.
+  }
+
+  promotions.forEach((promotion) => {
+    const project = projectMap.get(String(promotion.project_id)) || {};
+    addPromotionLandings(promotion, project);
+  });
+  const pageInfo = result.body.data && result.body.data.page_info ? result.body.data.page_info : {};
+  return {
+    ok: true,
+    apiPath: "/open_api/v3.0/promotion/list/",
+    list,
+    pageInfo: {
+      page: Number(pageInfo.page || page),
+      page_size: Number(pageInfo.page_size || safePageSize),
+      total_number: list.length,
+      total_page: Number(pageInfo.total_page || 1),
+    },
+  };
+}
+
+async function fetchLandingPages(advertiserId, page, pageSize, filters = {}) {
+  const externalAction = filters.externalAction || "AD_CONVERT_TYPE_GAME_ADDICTION";
+  const microAppInstanceId = filters.microAppInstanceId && /^\d+$/.test(String(filters.microAppInstanceId))
+    ? Number(filters.microAppInstanceId)
+    : null;
+  const candidates = [
+    {
+      apiPath: "/open_api/v3.0/tools/orange_site/get/",
+      query: cleanForCreate({
+        advertiser_id: advertiserId,
+        optimize_goal: JSON.stringify({ external_action: externalAction }),
+        filtering: microAppInstanceId ? JSON.stringify({ micro_app_instance_id: microAppInstanceId }) : undefined,
+        page,
+        page_size: Math.min(20, positiveInt(pageSize, 20, 1, 20)),
+      }),
+      injected: {
+        external_action: externalAction,
+        micro_app_instance_id: microAppInstanceId ? String(microAppInstanceId) : "",
+      },
+    },
+    {
+      apiPath: "/open_api/2/tools/site/get/",
+      query: { advertiser_id: advertiserId, page, page_size: pageSize },
+    },
+    {
+      apiPath: "/open_api/2/tools/orange_site/get/",
+      query: { advertiser_id: advertiserId, page, page_size: pageSize },
+    },
+  ];
+  const errors = [];
+  for (const candidate of candidates) {
+    const result = await oceanGetWithAuth(candidate.apiPath, candidate.query);
+    if (result.body && result.body.code === 0) {
+      const data = result.body.data || {};
+      const list = data.list || data.site_list || data.sites || data.records || [];
+      const pageInfo = data.page_info || data.pageInfo || {};
+      const normalized = Array.isArray(list)
+        ? list.map(normalizeLandingPage).filter((item) => item.url).map((item) => ({
+          ...item,
+          raw: Object.assign({}, item.raw, candidate.injected || {}),
+        }))
+        : [];
+      return {
+        ok: true,
+        apiPath: candidate.apiPath,
+        list: normalized,
+        pageInfo: {
+          page: Number(pageInfo.page || page),
+          page_size: Number(pageInfo.page_size || pageSize),
+          total_number: Number(pageInfo.total_number || pageInfo.total_count || data.total_number || list.length || 0),
+          total_page: Number(pageInfo.total_page || data.total_page || 1),
+        },
+      };
+    }
+    errors.push({
+      api: candidate.apiPath,
+      code: result.body && result.body.code,
+      message: result.body && result.body.message,
+      help_message: result.body && result.body.help_message,
+    });
+  }
+  return {
+    ok: false,
+    list: [],
+    pageInfo: { page, page_size: pageSize, total_number: 0, total_page: 1 },
+    errors,
+  };
+}
+
 async function fetchAwemeAccounts(advertiserId, page, pageSize) {
   const result = await oceanGetWithAuth("/open_api/2/tools/ies_account_search/", {
     advertiser_id: advertiserId,
@@ -967,11 +1247,37 @@ function pickUnitItems(items, unitIndex, perUnitCount) {
   return picked;
 }
 
-function buildPromotionName(baseName, groupName, unitIndex, totalUnits) {
-  if (totalUnits <= 1) return baseName;
+function buildUnitLandingOptions(landingOptions, unitIndex, accountIndex) {
+  const urls = Array.isArray(landingOptions.urls) ? landingOptions.urls : [];
+  const names = Array.isArray(landingOptions.names) ? landingOptions.names : [];
+  const perPromotion = positiveInt(landingOptions.perPromotion, urls.length || 1, 1, 20);
+  const distribution = landingOptions.distribution || "SAME";
+  let pickerIndex = 0;
+  if (distribution === "PROMOTION") {
+    pickerIndex = unitIndex;
+  } else if (distribution === "ACCOUNT" || distribution === "PROJECT") {
+    pickerIndex = positiveInt(accountIndex, 0, 0);
+  }
+  return {
+    ...landingOptions,
+    urls: pickUnitItems(urls, pickerIndex, perPromotion),
+    names: pickUnitItems(names, pickerIndex, perPromotion),
+  };
+}
+
+function buildUniqueName(prefix, suffix, maxLength = 100) {
+  const cleanPrefix = String(prefix || "promotion").trim();
+  const cleanSuffix = String(suffix || "").trim();
+  const tail = cleanSuffix ? `-${cleanSuffix}` : "";
+  const prefixLimit = Math.max(1, maxLength - tail.length);
+  return `${cleanPrefix.slice(0, prefixLimit)}${tail}`;
+}
+
+function buildPromotionName(baseName, groupName, unitIndex, totalUnits, runSuffix) {
   const suffix = String(unitIndex + 1).padStart(2, "0");
-  const prefix = groupName || baseName;
-  return `${prefix}-${suffix}`;
+  const prefix = baseName || groupName || "promotion";
+  const uniqueSuffix = totalUnits > 1 ? `${runSuffix}-${suffix}` : runSuffix;
+  return buildUniqueName(prefix, uniqueSuffix);
 }
 
 function buildUnitOptions(options, unitIndex, totalUnits) {
@@ -989,8 +1295,9 @@ function buildUnitOptions(options, unitIndex, totalUnits) {
     ...options,
     promotion: {
       ...basePromotion,
-      name: buildPromotionName(basePromotion.name, creative.groupName, unitIndex, totalUnits),
+      name: buildPromotionName(basePromotion.name, creative.groupName, unitIndex, totalUnits, options.runSuffix),
     },
+    landing: buildUnitLandingOptions(options.landing || {}, unitIndex, options.accountIndex || 0),
     creative: {
       ...creative,
       videoIds: unitVideoIds,
@@ -1013,7 +1320,8 @@ async function cloneOneProjectAndPromotion(options) {
 
   const sourceProject = readJsonFile("data/source-project.json").data.list[0];
   const sourcePromotion = readJsonFile("data/source-promotions.json").data.list[0];
-  const nameSuffix = options.nameSuffix || `复制-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+  const runSuffix = options.runSuffix || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const nameSuffix = options.nameSuffix || `复制-${runSuffix}`;
   const localVideoFiles = Array.isArray(options.localVideoFiles) ? options.localVideoFiles : [];
   let uploadedVideos = [];
   let effectiveOptions = options;
@@ -1056,7 +1364,7 @@ async function cloneOneProjectAndPromotion(options) {
   const promotionStatus = options.promotion && options.promotion.status ? options.promotion.status : "DISABLE";
 
   for (let unitIndex = 0; unitIndex < promotionCount; unitIndex += 1) {
-    const unitOptions = buildUnitOptions(effectiveOptions, unitIndex, promotionCount);
+    const unitOptions = buildUnitOptions({ ...effectiveOptions, runSuffix }, unitIndex, promotionCount);
     const promotionBody = createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserId, unitOptions);
     fs.writeFileSync(path.join(ROOT, "data/create-promotion-request.json"), promotionBody, "utf8");
     logStep(`create promotion ${unitIndex + 1}/${promotionCount} for project ${projectId}`);
@@ -1126,11 +1434,12 @@ async function cloneBatchProjectAndPromotion(options) {
   const results = [];
   const localVideoUploadCache = new Map();
 
-  for (const advertiserId of advertiserIds) {
+  for (const [accountIndex, advertiserId] of advertiserIds.entries()) {
     try {
       const result = await cloneOneProjectAndPromotion({
         ...options,
         advertiserId,
+        accountIndex,
         advertiserIds: undefined,
         localVideoUploadCache,
       });
@@ -1435,6 +1744,83 @@ async function handleApi(req, res) {
           }),
         },
         errors: result.errors || [],
+      });
+    } catch (error) {
+      json(res, 502, { code: 502, message: error.message });
+    }
+    return;
+  }
+
+  if (req.url.startsWith("/api/landing-pages")) {
+    if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+      json(res, 401, {
+        code: 401,
+        message: "Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.",
+        config,
+      });
+      return;
+    }
+
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const advertiserId = url.searchParams.get("advertiser_id") || url.searchParams.get("advertiserId") || config.advertiserId;
+    const keyword = (url.searchParams.get("keyword") || "").trim().toLowerCase();
+    const externalAction = url.searchParams.get("external_action") || url.searchParams.get("externalAction") || "";
+    const microAppInstanceId = url.searchParams.get("micro_app_instance_id") || url.searchParams.get("microAppInstanceId") || "";
+    const currentTime = url.searchParams.get("current_time") || url.searchParams.get("currentTime") || "";
+    const page = Number(url.searchParams.get("page") || 1);
+    const pageSize = Number(url.searchParams.get("page_size") || url.searchParams.get("pageSize") || 100);
+
+    try {
+      let result = await fetchLandingPagesFromPromotions(advertiserId, page, pageSize);
+      if (!result.ok) {
+        json(res, 502, {
+          code: 502,
+          message: "落地页列表获取失败",
+          errors: result.errors || [],
+        });
+        return;
+      }
+      const matched = filterLandingPages(result.list, {
+        externalAction,
+        microAppInstanceId,
+        currentTime,
+      });
+      let sourceApiPath = result.apiPath;
+      let sourcePageInfo = result.pageInfo;
+      let sourceList = matched;
+      if (!sourceList.length) {
+        const orangeResult = await fetchLandingPages(advertiserId, page, pageSize, {
+          externalAction,
+          microAppInstanceId,
+        });
+        if (orangeResult.ok) {
+          sourceApiPath = orangeResult.apiPath;
+          sourcePageInfo = orangeResult.pageInfo;
+          sourceList = filterLandingPages(orangeResult.list, {
+            externalAction,
+            microAppInstanceId,
+            currentTime,
+          });
+        }
+      }
+      const filtered = keyword
+        ? sourceList.filter((item) => item.name.toLowerCase().includes(keyword) || item.url.toLowerCase().includes(keyword) || item.id.includes(keyword))
+        : sourceList;
+      json(res, 200, {
+        code: 0,
+        message: "OK",
+        data: {
+          api_path: sourceApiPath,
+          list: filtered,
+          page_info: Object.assign({}, sourcePageInfo, {
+            total_number: filtered.length,
+          }),
+          filters: {
+            external_action: externalAction,
+            micro_app_instance_id: microAppInstanceId,
+            current_time: currentTime || new Date().toISOString(),
+          },
+        },
       });
     } catch (error) {
       json(res, 502, { code: 502, message: error.message });
