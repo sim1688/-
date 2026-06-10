@@ -41,6 +41,10 @@ const microAppInstanceId = document.querySelector("#microAppInstanceId");
 const selectWechatGame = document.querySelector("#selectWechatGame");
 const projectInventory = document.querySelector("#projectInventory");
 const projectAudienceSource = document.querySelector("#projectAudienceSource");
+const targetGender = document.querySelector("#targetGender");
+const targetRegionPreset = document.querySelector("#targetRegionPreset");
+const targetRegions = document.querySelector("#targetRegions");
+const targetLocationType = document.querySelector("#targetLocationType");
 const bidStrategyPreview = document.querySelector("#bidStrategyPreview");
 const adInfoSummary = document.querySelector("#adInfoSummary");
 const editAdInfo = document.querySelector("#editAdInfo");
@@ -179,6 +183,12 @@ let projectConfig = {
   microAppInstanceId: "1827014283265305",
   inventoryCatalog: "UNIVERSAL_SMART",
   audienceSource: "NONE",
+  targeting: {
+    age: [],
+    gender: "NONE",
+    city: [],
+    locationType: "CURRENT",
+  },
   budgetConfigMode: "UNIFIED",
   scheduleType: "SCHEDULE_FROM_NOW",
   scheduleTimeMode: "ALL",
@@ -390,6 +400,24 @@ function externalActionText(value) {
     AD_CONVERT_TYPE_PAY: "付费",
   };
   return map[value] || "关键行为";
+}
+
+function selectedTargetAges() {
+  return Array.from(document.querySelectorAll('input[name="targetAge"]:checked')).map((item) => item.value);
+}
+
+function setTargetAges(values) {
+  const selected = new Set(Array.isArray(values) ? values : []);
+  document.querySelectorAll('input[name="targetAge"]').forEach((input) => {
+    input.checked = selected.has(input.value);
+  });
+}
+
+function parseNumericList(value) {
+  return String(value || "")
+    .split(/[\s,，;；]+/)
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item));
 }
 
 function bidStrategyText(value) {
@@ -659,6 +687,7 @@ async function createOne() {
         microAppInstanceId: projectConfig.microAppInstanceId,
         inventoryCatalog: projectConfig.inventoryCatalog,
         audienceSource: projectConfig.audienceSource,
+        targeting: projectConfig.targeting,
         budgetConfigMode: projectConfig.budgetConfigMode,
         scheduleType: projectConfig.scheduleType,
         scheduleTimeMode: projectConfig.scheduleTimeMode,
@@ -747,13 +776,37 @@ function normalizeAdvertiser(item) {
   };
 }
 
+function splitSearchTerms(value) {
+  return String(value || "")
+    .split(/[\s,，;；]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function resizeAccountSearch() {
+  if (!accountSearch) return;
+  accountSearch.style.height = "24px";
+  accountSearch.style.height = `${Math.min(92, Math.max(24, accountSearch.scrollHeight))}px`;
+}
+
 function filteredAdvertisers() {
-  const keyword = accountSearch.value.trim().toLowerCase();
-  if (!keyword) return advertisers;
-  return advertisers.filter((item) => {
-    return item.advertiser_id.toLowerCase().includes(keyword) ||
-      item.advertiser_name.toLowerCase().includes(keyword) ||
-      item.company_name.toLowerCase().includes(keyword);
+  const terms = splitSearchTerms(accountSearch.value);
+  if (!terms.length) return advertisers;
+  const onlyIds = terms.every((term) => /^\d+$/.test(term));
+  const matched = advertisers.filter((item) => {
+    return terms.some((term) => {
+      if (onlyIds) return item.advertiser_id === term || item.advertiser_id.includes(term);
+      return item.advertiser_id.toLowerCase().includes(term) ||
+        item.advertiser_name.toLowerCase().includes(term) ||
+        item.company_name.toLowerCase().includes(term);
+    });
+  });
+  if (!onlyIds) return matched;
+  const order = new Map(terms.map((term, index) => [term, index]));
+  return matched.sort((a, b) => {
+    const aIndex = terms.findIndex((term) => a.advertiser_id === term || a.advertiser_id.includes(term));
+    const bIndex = terms.findIndex((term) => b.advertiser_id === term || b.advertiser_id.includes(term));
+    return (aIndex === -1 ? order.size : aIndex) - (bIndex === -1 ? order.size : bIndex);
   });
 }
 
@@ -902,6 +955,12 @@ function openProjectModal() {
   microAppInstanceId.value = projectConfig.microAppInstanceId || "1827014283265305";
   projectInventory.value = projectConfig.inventoryCatalog || "UNIVERSAL_SMART";
   projectAudienceSource.value = projectConfig.audienceSource || "NONE";
+  const targeting = projectConfig.targeting || {};
+  targetGender.value = targeting.gender || "NONE";
+  targetRegionPreset.value = "";
+  targetRegions.value = Array.isArray(targeting.city) ? targeting.city.join("\n") : "";
+  targetLocationType.value = targeting.locationType || "CURRENT";
+  setTargetAges(targeting.age || []);
   projectModal.classList.add("is-open");
   projectModal.setAttribute("aria-hidden", "false");
 }
@@ -943,6 +1002,12 @@ function saveProjectDialog() {
     microAppInstanceId: microAppInstanceId.value.trim() || "1827014283265305",
     inventoryCatalog: projectInventory.value || "UNIVERSAL_SMART",
     audienceSource: projectAudienceSource.value || "NONE",
+    targeting: {
+      age: selectedTargetAges(),
+      gender: targetGender.value || "NONE",
+      city: parseNumericList(targetRegions.value),
+      locationType: targetLocationType.value || "CURRENT",
+    },
     budgetConfigMode: getRadioValue("budgetConfigMode") || "UNIFIED",
     scheduleType: getRadioValue("scheduleType") || "SCHEDULE_FROM_NOW",
     scheduleTimeMode: getRadioValue("scheduleTimeMode") || "ALL",
@@ -1649,9 +1714,13 @@ changeAccount.addEventListener("click", openAccountModal);
 closeAccountModal.addEventListener("click", closeModal);
 cancelAccountModal.addEventListener("click", closeModal);
 reloadAccounts.addEventListener("click", renderAdvertisers);
-accountSearch.addEventListener("input", renderAdvertisers);
+accountSearch.addEventListener("input", () => {
+  resizeAccountSearch();
+  renderAdvertisers();
+});
 clearAccountSearch.addEventListener("click", () => {
   accountSearch.value = "";
+  resizeAccountSearch();
   renderAdvertisers();
 });
 clearSelectedAccount.addEventListener("click", () => {
@@ -1671,6 +1740,12 @@ editProject.addEventListener("click", openProjectModal);
 closeProjectModal.addEventListener("click", closeProjectDialog);
 cancelProjectModal.addEventListener("click", closeProjectDialog);
 saveProjectConfig.addEventListener("click", saveProjectDialog);
+targetRegionPreset.addEventListener("change", () => {
+  if (!targetRegionPreset.value) return;
+  const current = new Set(parseNumericList(targetRegions.value));
+  current.add(Number(targetRegionPreset.value));
+  targetRegions.value = Array.from(current).join("\n");
+});
 editAdInfo.addEventListener("click", openAdInfoModal);
 closeAdInfoModal.addEventListener("click", closeAdInfoDialog);
 cancelAdInfoModal.addEventListener("click", closeAdInfoDialog);

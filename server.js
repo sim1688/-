@@ -971,6 +971,20 @@ function createProjectPayload(sourceProject, options, nameSuffix, advertiserId) 
     filter_aweme_abnormal_active: "OFF",
     filter_own_aweme_fans: "OFF",
   }, payload.audience);
+  const targeting = projectContent.targeting || {};
+  if (Array.isArray(targeting.age)) {
+    payload.audience.age = targeting.age;
+  }
+  if (targeting.gender) {
+    payload.audience.gender = targeting.gender;
+  }
+  if (Array.isArray(targeting.city) && targeting.city.length) {
+    payload.audience.city = targeting.city;
+    payload.audience.district = "REGION";
+    if (targeting.locationType) {
+      payload.audience.location_type = targeting.locationType;
+    }
+  }
   return payload;
 }
 

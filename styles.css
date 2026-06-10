@@ -1063,12 +1063,33 @@ button {
 }
 
 .dialog-filters select,
-.dialog-filters input {
+.dialog-filters input,
+.dialog-filters textarea {
   height: 24px;
   padding: 0 8px;
   border: 1px solid #dfe3ea;
   border-radius: 2px;
   background: #fff;
+}
+
+.dialog-filters textarea {
+  min-height: 24px;
+  max-height: 92px;
+  padding-top: 2px;
+  line-height: 20px;
+  resize: vertical;
+}
+
+.target-age-options {
+  flex-wrap: wrap;
+}
+
+.project-grid textarea {
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid #dfe3ea;
+  border-radius: 3px;
+  resize: vertical;
 }
 
 .search-button,
