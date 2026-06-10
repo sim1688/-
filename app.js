@@ -4,6 +4,17 @@ const account = document.querySelector("#account");
 const ruleText = document.querySelector("#ruleText");
 const budgetInput = document.querySelector("#budgetInput");
 const resultPanel = document.querySelector("#resultPanel");
+const authButton = document.querySelector("#authButton");
+const authStatusText = document.querySelector("#authStatusText");
+const authModal = document.querySelector("#authModal");
+const closeAuthModal = document.querySelector("#closeAuthModal");
+const startOAuth = document.querySelector("#startOAuth");
+const refreshOAuth = document.querySelector("#refreshOAuth");
+const clearOAuth = document.querySelector("#clearOAuth");
+const exchangeAuthCode = document.querySelector("#exchangeAuthCode");
+const authCodeInput = document.querySelector("#authCodeInput");
+const authCurrentState = document.querySelector("#authCurrentState");
+const authMessage = document.querySelector("#authMessage");
 const changeAccount = document.querySelector("#changeAccount");
 const accountModal = document.querySelector("#accountModal");
 const closeAccountModal = document.querySelector("#closeAccountModal");
@@ -42,9 +53,13 @@ const selectWechatGame = document.querySelector("#selectWechatGame");
 const projectInventory = document.querySelector("#projectInventory");
 const projectAudienceSource = document.querySelector("#projectAudienceSource");
 const targetGender = document.querySelector("#targetGender");
-const targetRegionPreset = document.querySelector("#targetRegionPreset");
-const targetRegions = document.querySelector("#targetRegions");
 const targetLocationType = document.querySelector("#targetLocationType");
+const targetAgeUnlimited = document.querySelector("#targetAgeUnlimited");
+const targetRegionSummary = document.querySelector("#targetRegionSummary");
+const targetRegionClear = document.querySelector("#targetRegionClear");
+const targetRegionSearch = document.querySelector("#targetRegionSearch");
+const targetProvinceList = document.querySelector("#targetProvinceList");
+const targetCityList = document.querySelector("#targetCityList");
 const bidStrategyPreview = document.querySelector("#bidStrategyPreview");
 const adInfoSummary = document.querySelector("#adInfoSummary");
 const editAdInfo = document.querySelector("#editAdInfo");
@@ -155,6 +170,40 @@ const awemeRows = document.querySelector("#awemeRows");
 const awemePageInfo = document.querySelector("#awemePageInfo");
 
 const MAX_SELECTED_ADVERTISERS = 20;
+const AUTH_STORAGE_KEY = "oceanengineAuth";
+const TARGET_REGIONS = [
+  { id: 11, name: "???", cities: [{ id: 11, name: "???" }] },
+  { id: 12, name: "???", cities: [{ id: 12, name: "???" }] },
+  { id: 13, name: "???", cities: [{ id: 130100, name: "????" }, { id: 130200, name: "???" }, { id: 130300, name: "????" }, { id: 130400, name: "???" }, { id: 130500, name: "???" }, { id: 130600, name: "???" }, { id: 130700, name: "????" }, { id: 130800, name: "???" }, { id: 130900, name: "???" }, { id: 131000, name: "???" }, { id: 131100, name: "???" }] },
+  { id: 14, name: "???", cities: [{ id: 140100, name: "???" }, { id: 140200, name: "???" }, { id: 140300, name: "???" }, { id: 140400, name: "???" }, { id: 140500, name: "???" }, { id: 140600, name: "???" }, { id: 140700, name: "???" }, { id: 140800, name: "???" }, { id: 140900, name: "???" }, { id: 141000, name: "???" }, { id: 141100, name: "???" }] },
+  { id: 15, name: "??????", cities: [{ id: 150100, name: "?????" }, { id: 150200, name: "???" }, { id: 150300, name: "???" }, { id: 150400, name: "???" }, { id: 150500, name: "???" }, { id: 150600, name: "?????" }, { id: 150700, name: "?????" }, { id: 150800, name: "?????" }, { id: 150900, name: "?????" }, { id: 152200, name: "???" }, { id: 152500, name: "?????" }, { id: 152900, name: "????" }] },
+  { id: 21, name: "???", cities: [{ id: 210100, name: "???" }, { id: 210200, name: "???" }, { id: 210300, name: "???" }, { id: 210400, name: "???" }, { id: 210500, name: "???" }, { id: 210600, name: "???" }, { id: 210700, name: "???" }, { id: 210800, name: "???" }, { id: 210900, name: "???" }, { id: 211000, name: "???" }, { id: 211100, name: "???" }, { id: 211200, name: "???" }, { id: 211300, name: "???" }, { id: 211400, name: "????" }] },
+  { id: 22, name: "???", cities: [{ id: 220100, name: "???" }, { id: 220200, name: "???" }, { id: 220300, name: "???" }, { id: 220400, name: "???" }, { id: 220500, name: "???" }, { id: 220600, name: "???" }, { id: 220700, name: "???" }, { id: 220800, name: "???" }, { id: 222400, name: "????????" }] },
+  { id: 23, name: "????", cities: [{ id: 230100, name: "????" }, { id: 230200, name: "?????" }, { id: 230300, name: "???" }, { id: 230400, name: "???" }, { id: 230500, name: "????" }, { id: 230600, name: "???" }, { id: 230700, name: "???" }, { id: 230800, name: "????" }, { id: 230900, name: "????" }, { id: 231000, name: "????" }, { id: 231100, name: "???" }, { id: 231200, name: "???" }, { id: 232700, name: "??????" }] },
+  { id: 31, name: "???", cities: [{ id: 31, name: "???" }] },
+  { id: 32, name: "???", cities: [{ id: 320100, name: "???" }, { id: 320200, name: "???" }, { id: 320300, name: "???" }, { id: 320400, name: "???" }, { id: 320500, name: "???" }, { id: 320600, name: "???" }, { id: 320700, name: "????" }, { id: 320800, name: "???" }, { id: 320900, name: "???" }, { id: 321000, name: "???" }, { id: 321100, name: "???" }, { id: 321200, name: "???" }, { id: 321300, name: "???" }] },
+  { id: 33, name: "???", cities: [{ id: 330100, name: "???" }, { id: 330200, name: "???" }, { id: 330300, name: "???" }, { id: 330400, name: "???" }, { id: 330500, name: "???" }, { id: 330600, name: "???" }, { id: 330700, name: "???" }, { id: 330800, name: "???" }, { id: 330900, name: "???" }, { id: 331000, name: "???" }, { id: 331100, name: "???" }] },
+  { id: 34, name: "???", cities: [{ id: 340100, name: "???" }, { id: 340200, name: "???" }, { id: 340300, name: "???" }, { id: 340400, name: "???" }, { id: 340500, name: "????" }, { id: 340600, name: "???" }, { id: 340700, name: "???" }, { id: 340800, name: "???" }, { id: 341000, name: "???" }, { id: 341100, name: "???" }, { id: 341200, name: "???" }, { id: 341300, name: "???" }, { id: 341500, name: "???" }, { id: 341600, name: "???" }, { id: 341700, name: "???" }, { id: 341800, name: "???" }] },
+  { id: 35, name: "???", cities: [{ id: 350100, name: "???" }, { id: 350200, name: "???" }, { id: 350300, name: "???" }, { id: 350400, name: "???" }, { id: 350500, name: "???" }, { id: 350600, name: "???" }, { id: 350700, name: "???" }, { id: 350800, name: "???" }, { id: 350900, name: "???" }] },
+  { id: 36, name: "???", cities: [{ id: 360100, name: "???" }, { id: 360200, name: "????" }, { id: 360300, name: "???" }, { id: 360400, name: "???" }, { id: 360500, name: "???" }, { id: 360600, name: "???" }, { id: 360700, name: "???" }, { id: 360800, name: "???" }, { id: 360900, name: "???" }, { id: 361000, name: "???" }, { id: 361100, name: "???" }] },
+  { id: 37, name: "???", cities: [{ id: 370100, name: "???" }, { id: 370200, name: "???" }, { id: 370300, name: "???" }, { id: 370400, name: "???" }, { id: 370500, name: "???" }, { id: 370600, name: "???" }, { id: 370700, name: "???" }, { id: 370800, name: "???" }, { id: 370900, name: "???" }, { id: 371000, name: "???" }, { id: 371100, name: "???" }, { id: 371300, name: "???" }, { id: 371400, name: "???" }, { id: 371500, name: "???" }, { id: 371600, name: "???" }, { id: 371700, name: "???" }] },
+  { id: 41, name: "???", cities: [{ id: 410100, name: "???" }, { id: 410200, name: "???" }, { id: 410300, name: "???" }, { id: 410400, name: "????" }, { id: 410500, name: "???" }, { id: 410600, name: "???" }, { id: 410700, name: "???" }, { id: 410800, name: "???" }, { id: 410900, name: "???" }, { id: 411000, name: "???" }, { id: 411100, name: "???" }, { id: 411200, name: "????" }, { id: 411300, name: "???" }, { id: 411400, name: "???" }, { id: 411500, name: "???" }, { id: 411600, name: "???" }, { id: 411700, name: "????" }, { id: 419001, name: "???" }] },
+  { id: 42, name: "???", cities: [{ id: 420100, name: "???" }, { id: 420200, name: "???" }, { id: 420300, name: "???" }, { id: 420500, name: "???" }, { id: 420600, name: "???" }, { id: 420700, name: "???" }, { id: 420800, name: "???" }, { id: 420900, name: "???" }, { id: 421000, name: "???" }, { id: 421100, name: "???" }, { id: 421200, name: "???" }, { id: 421300, name: "???" }, { id: 422800, name: "??????????" }, { id: 429004, name: "???" }, { id: 429005, name: "???" }, { id: 429006, name: "???" }, { id: 429021, name: "?????" }] },
+  { id: 43, name: "???", cities: [{ id: 430100, name: "???" }, { id: 430200, name: "???" }, { id: 430300, name: "???" }, { id: 430400, name: "???" }, { id: 430500, name: "???" }, { id: 430600, name: "???" }, { id: 430700, name: "???" }, { id: 430800, name: "????" }, { id: 430900, name: "???" }, { id: 431000, name: "???" }, { id: 431100, name: "???" }, { id: 431200, name: "???" }, { id: 431300, name: "???" }, { id: 433100, name: "??????????" }] },
+  { id: 44, name: "???", cities: [{ id: 440100, name: "???" }, { id: 440200, name: "???" }, { id: 440300, name: "???" }, { id: 440400, name: "???" }, { id: 440500, name: "???" }, { id: 440600, name: "???" }, { id: 440700, name: "???" }, { id: 440800, name: "???" }, { id: 440900, name: "???" }, { id: 441200, name: "???" }, { id: 441300, name: "???" }, { id: 441400, name: "???" }, { id: 441500, name: "???" }, { id: 441600, name: "???" }, { id: 441700, name: "???" }, { id: 441800, name: "???" }, { id: 441900, name: "???" }, { id: 442000, name: "???" }, { id: 445100, name: "???" }, { id: 445200, name: "???" }, { id: 445300, name: "???" }] },
+  { id: 45, name: "???????", cities: [{ id: 450100, name: "???" }, { id: 450200, name: "???" }, { id: 450300, name: "???" }, { id: 450400, name: "???" }, { id: 450500, name: "???" }, { id: 450600, name: "????" }, { id: 450700, name: "???" }, { id: 450800, name: "???" }, { id: 450900, name: "???" }, { id: 451000, name: "???" }, { id: 451100, name: "???" }, { id: 451200, name: "???" }, { id: 451300, name: "???" }, { id: 451400, name: "???" }] },
+  { id: 46, name: "???", cities: [{ id: 460100, name: "???" }, { id: 460200, name: "???" }, { id: 460300, name: "???" }, { id: 460400, name: "???" }, { id: 469001, name: "????" }, { id: 469002, name: "???" }, { id: 469005, name: "???" }, { id: 469006, name: "???" }, { id: 469007, name: "???" }, { id: 469021, name: "???" }, { id: 469022, name: "???" }, { id: 469023, name: "???" }, { id: 469024, name: "???" }, { id: 469025, name: "???????" }, { id: 469026, name: "???????" }, { id: 469027, name: "???????" }, { id: 469028, name: "???????" }, { id: 469029, name: "?????????" }, { id: 469030, name: "?????????" }] },
+  { id: 50, name: "???", cities: [{ id: 50, name: "???" }] },
+  { id: 51, name: "???", cities: [{ id: 510100, name: "???" }, { id: 510300, name: "???" }, { id: 510400, name: "????" }, { id: 510500, name: "???" }, { id: 510600, name: "???" }, { id: 510700, name: "???" }, { id: 510800, name: "???" }, { id: 510900, name: "???" }, { id: 511000, name: "???" }, { id: 511100, name: "???" }, { id: 511300, name: "???" }, { id: 511400, name: "???" }, { id: 511500, name: "???" }, { id: 511600, name: "???" }, { id: 511700, name: "???" }, { id: 511800, name: "???" }, { id: 511900, name: "???" }, { id: 512000, name: "???" }, { id: 513200, name: "?????????" }, { id: 513300, name: "???????" }, { id: 513400, name: "???????" }] },
+  { id: 52, name: "???", cities: [{ id: 520100, name: "???" }, { id: 520200, name: "????" }, { id: 520300, name: "???" }, { id: 520400, name: "???" }, { id: 520500, name: "???" }, { id: 520600, name: "???" }, { id: 522300, name: "???????????" }, { id: 522600, name: "??????????" }, { id: 522700, name: "??????????" }] },
+  { id: 53, name: "???", cities: [{ id: 530100, name: "???" }, { id: 530300, name: "???" }, { id: 530400, name: "???" }, { id: 530500, name: "???" }, { id: 530600, name: "???" }, { id: 530700, name: "???" }, { id: 530800, name: "???" }, { id: 530900, name: "???" }, { id: 532300, name: "???????" }, { id: 532500, name: "??????????" }, { id: 532600, name: "?????????" }, { id: 532800, name: "?????????" }, { id: 532900, name: "???????" }, { id: 533100, name: "??????????" }, { id: 533300, name: "????????" }, { id: 533400, name: "???????" }] },
+  { id: 54, name: "?????", cities: [{ id: 540100, name: "???" }, { id: 540200, name: "????" }, { id: 540300, name: "???" }, { id: 540400, name: "???" }, { id: 540500, name: "???" }, { id: 540600, name: "???" }, { id: 542500, name: "????" }] },
+  { id: 61, name: "???", cities: [{ id: 610100, name: "???" }, { id: 610200, name: "???" }, { id: 610300, name: "???" }, { id: 610400, name: "???" }, { id: 610500, name: "???" }, { id: 610600, name: "???" }, { id: 610700, name: "???" }, { id: 610800, name: "???" }, { id: 610900, name: "???" }, { id: 611000, name: "???" }] },
+  { id: 62, name: "???", cities: [{ id: 620100, name: "???" }, { id: 620200, name: "????" }, { id: 620300, name: "???" }, { id: 620400, name: "???" }, { id: 620500, name: "???" }, { id: 620600, name: "???" }, { id: 620700, name: "???" }, { id: 620800, name: "???" }, { id: 620900, name: "???" }, { id: 621000, name: "???" }, { id: 621100, name: "???" }, { id: 621200, name: "???" }, { id: 622900, name: "???????" }, { id: 623000, name: "???????" }] },
+  { id: 63, name: "???", cities: [{ id: 630100, name: "???" }, { id: 630200, name: "???" }, { id: 632200, name: "???????" }, { id: 632300, name: "???????" }, { id: 632500, name: "???????" }, { id: 632600, name: "???????" }, { id: 632700, name: "???????" }, { id: 632800, name: "??????????" }] },
+  { id: 64, name: "???????", cities: [{ id: 640100, name: "???" }, { id: 640200, name: "????" }, { id: 640300, name: "???" }, { id: 640400, name: "???" }, { id: 640500, name: "???" }] },
+  { id: 65, name: "????????", cities: [{ id: 650100, name: "?????" }, { id: 650200, name: "?????" }, { id: 650400, name: "????" }, { id: 650500, name: "???" }, { id: 652300, name: "???????" }, { id: 652700, name: "?????????" }, { id: 652800, name: "?????????" }, { id: 652900, name: "?????" }, { id: 653000, name: "???????????" }, { id: 653100, name: "????" }, { id: 653200, name: "????" }, { id: 654000, name: "????????" }, { id: 654200, name: "????" }, { id: 654300, name: "?????" }, { id: 659001, name: "????" }, { id: 659002, name: "????" }, { id: 659003, name: "?????" }, { id: 659004, name: "????" }, { id: 659005, name: "???" }, { id: 659006, name: "????" }, { id: 659007, name: "???" }, { id: 659008, name: "?????" }, { id: 659009, name: "???" }, { id: 659010, name: "????" }] },
+];
 
 let advertisers = [];
 let selectedAdvertisers = [];
@@ -162,6 +211,177 @@ let miniGames = [];
 let awemeAccounts = [];
 let miniGamePage = 1;
 let miniGameTotalPage = 1;
+if (Array.isArray(window.FULL_TARGET_REGIONS) && window.FULL_TARGET_REGIONS.length) {
+  TARGET_REGIONS.splice(0, TARGET_REGIONS.length, ...window.FULL_TARGET_REGIONS);
+}
+let activeTargetProvinceId = TARGET_REGIONS[0].id;
+let selectedTargetCityIds = new Set();
+
+function readOceanAuth() {
+  try {
+    return JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || "{}");
+  } catch (error) {
+    console.warn("授权信息读取失败", error);
+    return {};
+  }
+}
+
+function writeOceanAuth(nextAuth) {
+  const auth = Object.assign({}, readOceanAuth(), nextAuth, { savedAt: Date.now() });
+  if (!auth.accessToken) return;
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth));
+  updateAuthStatus();
+}
+
+function removeOceanAuth() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  updateAuthStatus();
+}
+
+function maskToken(value) {
+  const token = String(value || "");
+  if (!token) return "未保存";
+  if (token.length <= 12) return "已保存";
+  return `${token.slice(0, 6)}...${token.slice(-6)}`;
+}
+
+function authFromPayload(payload) {
+  const data = payload && payload.data ? payload.data : {};
+  return {
+    accessToken: data.access_token || data.accessToken || payload.access_token || payload.accessToken || "",
+    refreshToken: data.refresh_token || data.refreshToken || payload.refresh_token || payload.refreshToken || "",
+  };
+}
+
+function syncAuthFromResponse(response) {
+  const accessToken = response.headers.get("X-OE-Access-Token");
+  const refreshToken = response.headers.get("X-OE-Refresh-Token");
+  if (accessToken || refreshToken) {
+    writeOceanAuth({ accessToken, refreshToken });
+  }
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const auth = readOceanAuth();
+  if (auth.accessToken) headers.set("X-OE-Access-Token", auth.accessToken);
+  if (auth.refreshToken) headers.set("X-OE-Refresh-Token", auth.refreshToken);
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+  syncAuthFromResponse(response);
+  return response;
+}
+
+function updateAuthStatus(message) {
+  const auth = readOceanAuth();
+  const authed = Boolean(auth.accessToken);
+  if (authButton) {
+    authButton.classList.toggle("is-authed", authed);
+  }
+  if (authStatusText) {
+    authStatusText.textContent = authed ? "已授权" : "未授权";
+  }
+  if (authCurrentState) {
+    const savedTime = auth.savedAt ? new Date(auth.savedAt).toLocaleString() : "";
+    authCurrentState.textContent = authed
+      ? `当前浏览器已保存授权。Access Token：${maskToken(auth.accessToken)}；Refresh Token：${maskToken(auth.refreshToken)}${savedTime ? `；保存时间：${savedTime}` : ""}`
+      : "当前浏览器未保存授权。";
+  }
+  if (authMessage && message) {
+    authMessage.textContent = message;
+  }
+}
+
+function openAuthDialog() {
+  updateAuthStatus();
+  authModal.classList.add("is-open");
+  authModal.setAttribute("aria-hidden", "false");
+}
+
+function closeAuthDialog() {
+  authModal.classList.remove("is-open");
+  authModal.setAttribute("aria-hidden", "true");
+}
+
+async function startOAuthFlow() {
+  authMessage.textContent = "正在生成授权链接...";
+  try {
+    const response = await apiFetch("/api/oauth/authorize-url");
+    const result = await response.json();
+    if (!response.ok || result.code !== 0 || !result.data || !result.data.url) {
+      throw new Error(result.message || "授权链接生成失败");
+    }
+    location.href = result.data.url;
+  } catch (error) {
+    updateAuthStatus(error.message);
+  }
+}
+
+async function exchangeLocalAuthCode() {
+  const authCode = authCodeInput.value.trim();
+  if (!authCode) {
+    updateAuthStatus("请先粘贴 code 或 auth_code。");
+    return;
+  }
+
+  authMessage.textContent = "正在换取 Token...";
+  try {
+    const response = await apiFetch("/api/oauth/exchange", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ auth_code: authCode }),
+    });
+    const result = await response.json();
+    if (!response.ok || result.code !== 0) {
+      throw new Error(result.message || "授权码换取 Token 失败");
+    }
+    const tokens = authFromPayload(result);
+    if (tokens.accessToken) {
+      writeOceanAuth(tokens);
+      authCodeInput.value = "";
+      updateAuthStatus("授权已保存到当前浏览器。");
+      return;
+    }
+    throw new Error("接口未返回 access_token。");
+  } catch (error) {
+    updateAuthStatus(error.message);
+  }
+}
+
+async function refreshLocalOAuth() {
+  const auth = readOceanAuth();
+  if (!auth.refreshToken) {
+    updateAuthStatus("当前浏览器没有 Refresh Token，请重新获取授权。");
+    return;
+  }
+
+  authMessage.textContent = "正在刷新 Token...";
+  try {
+    const response = await apiFetch("/api/oauth/refresh", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok || result.code !== 0) {
+      throw new Error(result.message || "刷新 Token 失败");
+    }
+    const tokens = authFromPayload(result);
+    if (tokens.accessToken) {
+      writeOceanAuth(tokens);
+      updateAuthStatus("Token 已刷新并保存。");
+      return;
+    }
+    throw new Error("刷新接口未返回 access_token。");
+  } catch (error) {
+    updateAuthStatus(error.message);
+  }
+}
+
+function clearLocalOAuth() {
+  removeOceanAuth();
+  updateAuthStatus("已清除当前浏览器保存的授权。");
+}
+
 let projectConfig = {
   budget: 300,
   cpaBid: 1.34,
@@ -403,11 +623,13 @@ function externalActionText(value) {
 }
 
 function selectedTargetAges() {
+  if (targetAgeUnlimited && targetAgeUnlimited.checked) return [];
   return Array.from(document.querySelectorAll('input[name="targetAge"]:checked')).map((item) => item.value);
 }
 
 function setTargetAges(values) {
   const selected = new Set(Array.isArray(values) ? values : []);
+  if (targetAgeUnlimited) targetAgeUnlimited.checked = !selected.size;
   document.querySelectorAll('input[name="targetAge"]').forEach((input) => {
     input.checked = selected.has(input.value);
   });
@@ -418,6 +640,84 @@ function parseNumericList(value) {
     .split(/[\s,，;；]+/)
     .map((item) => Number(item.trim()))
     .filter((item) => Number.isFinite(item));
+}
+
+function selectedTargetCities() {
+  return Array.from(selectedTargetCityIds).filter((item) => Number.isFinite(item));
+}
+
+function renderTargetRegionSummary() {
+  const count = selectedTargetCities().length;
+  if (targetRegionSummary) {
+    targetRegionSummary.textContent = count ? `已选：${count} 个行政区域` : "已选：不限";
+  }
+}
+
+function renderTargetRegions() {
+  if (!targetProvinceList || !targetCityList) return;
+  const keyword = (targetRegionSearch && targetRegionSearch.value || "").trim().toLowerCase();
+  const selectedCities = selectedTargetCityIds;
+  const provinces = TARGET_REGIONS.filter((province) => {
+    if (!keyword) return true;
+    return province.name.toLowerCase().includes(keyword) ||
+      province.cities.some((city) => city.name.toLowerCase().includes(keyword));
+  });
+  if (!provinces.some((province) => province.id === activeTargetProvinceId)) {
+    activeTargetProvinceId = (provinces[0] || TARGET_REGIONS[0]).id;
+  }
+  const unlimitedRow = `
+    <div class="region-province-row region-unlimited-row ${selectedCities.size ? "" : "is-active"}">
+      <label class="region-check">
+        <input type="checkbox" data-target-region-unlimited ${selectedCities.size ? "" : "checked"}>
+        <span>不限地域</span>
+      </label>
+    </div>
+  `;
+  targetProvinceList.innerHTML = unlimitedRow + provinces.map((province) => {
+    const checkedCount = province.cities.filter((city) => selectedCities.has(city.id)).length;
+    const allChecked = province.cities.length > 0 && checkedCount === province.cities.length;
+    return `
+      <div class="region-province-row ${province.id === activeTargetProvinceId ? "is-active" : ""}">
+        <label class="region-check">
+          <input type="checkbox" data-target-province-check="${province.id}" ${allChecked ? "checked" : ""}>
+          <span>${escapeHtml(province.name)}</span>
+        </label>
+        <small>${checkedCount ? `${checkedCount}/${province.cities.length}` : ""}</small>
+        <button type="button" aria-label="${escapeHtml(province.name)}" data-target-province="${province.id}">›</button>
+      </div>
+    `;
+  }).join("");
+  const activeProvince = TARGET_REGIONS.find((province) => province.id === activeTargetProvinceId) || TARGET_REGIONS[0];
+  const cities = activeProvince.cities.filter((city) => !keyword || city.name.toLowerCase().includes(keyword) || activeProvince.name.toLowerCase().includes(keyword));
+  const allChecked = cities.length > 0 && cities.every((city) => selectedCities.has(city.id));
+  const someChecked = cities.some((city) => selectedCities.has(city.id));
+  targetCityList.innerHTML = `
+    <label class="region-check region-check-all">
+      <input type="checkbox" data-target-city-all="${activeProvince.id}" ${allChecked ? "checked" : ""}>
+      <span>全选${escapeHtml(activeProvince.name)}</span>
+    </label>
+    ${cities.map((city) => `
+      <label class="region-check">
+        <input type="checkbox" name="targetCity" value="${city.id}" ${selectedCities.has(city.id) ? "checked" : ""}>
+        <span>${escapeHtml(city.name)}</span>
+      </label>
+    `).join("")}
+  `;
+  targetProvinceList.querySelectorAll("[data-target-province-check]").forEach((input) => {
+    const province = TARGET_REGIONS.find((item) => item.id === Number(input.dataset.targetProvinceCheck));
+    const checkedCount = (province ? province.cities : []).filter((city) => selectedCities.has(city.id)).length;
+    input.indeterminate = checkedCount > 0 && checkedCount < (province ? province.cities.length : 0);
+  });
+  const cityAll = targetCityList.querySelector("[data-target-city-all]");
+  if (cityAll) cityAll.indeterminate = someChecked && !allChecked;
+  renderTargetRegionSummary();
+}
+
+function setTargetCities(values) {
+  selectedTargetCityIds = new Set((Array.isArray(values) ? values : [])
+    .map(Number)
+    .filter((item) => Number.isFinite(item)));
+  renderTargetRegions();
 }
 
 function bidStrategyText(value) {
@@ -640,6 +940,11 @@ async function createOne() {
     setResultError("请通过 http://localhost:5173 打开页面，file:// 无法调用本地接口。");
     return;
   }
+  if (!readOceanAuth().accessToken) {
+    setResultError("请先完成巨量引擎授权。");
+    openAuthDialog();
+    return;
+  }
 
   const budget = Number(budgetInput.value || 300);
   if (!Number.isFinite(budget) || budget < 300) {
@@ -714,12 +1019,12 @@ async function createOne() {
       const formData = new FormData();
       formData.append("payload", JSON.stringify(payload));
       localVideos.forEach((file) => formData.append("localVideos", file, file.name));
-      response = await fetch("/api/clone-one", {
+      response = await apiFetch("/api/clone-one", {
         method: "POST",
         body: formData,
       });
     } else {
-      response = await fetch("/api/clone-one", {
+      response = await apiFetch("/api/clone-one", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -746,7 +1051,7 @@ async function loadOceanengineConfig() {
   if (!location.protocol.startsWith("http")) return;
 
   try {
-    const response = await fetch("/api/config");
+    const response = await apiFetch("/api/config");
     const config = await response.json();
     account.placeholder = `广告主 ${config.advertiserId}`;
     ruleText.title = `样例项目 ID：${config.sourceProjectId}`;
@@ -876,7 +1181,7 @@ async function loadAdvertisers() {
   accountRows.innerHTML = `<tr><td colspan="6" class="table-empty">加载中...</td></tr>`;
   accountWarning.textContent = "";
   try {
-    const response = await fetch("/api/advertisers");
+    const response = await apiFetch("/api/advertisers");
     const result = await response.json();
     if (!response.ok || result.code !== 0) {
       throw new Error(result.message || "账号列表加载失败");
@@ -957,10 +1262,10 @@ function openProjectModal() {
   projectAudienceSource.value = projectConfig.audienceSource || "NONE";
   const targeting = projectConfig.targeting || {};
   targetGender.value = targeting.gender || "NONE";
-  targetRegionPreset.value = "";
-  targetRegions.value = Array.isArray(targeting.city) ? targeting.city.join("\n") : "";
   targetLocationType.value = targeting.locationType || "CURRENT";
   setTargetAges(targeting.age || []);
+  renderTargetRegions();
+  setTargetCities(targeting.city || []);
   projectModal.classList.add("is-open");
   projectModal.setAttribute("aria-hidden", "false");
 }
@@ -1005,7 +1310,7 @@ function saveProjectDialog() {
     targeting: {
       age: selectedTargetAges(),
       gender: targetGender.value || "NONE",
-      city: parseNumericList(targetRegions.value),
+      city: selectedTargetCities(),
       locationType: targetLocationType.value || "CURRENT",
     },
     budgetConfigMode: getRadioValue("budgetConfigMode") || "UNIFIED",
@@ -1091,7 +1396,7 @@ async function loadMiniGames() {
       page: String(miniGamePage),
       page_size: miniGamePageSize.value,
     });
-    const response = await fetch(`/api/mini-games?${params.toString()}`);
+    const response = await apiFetch(`/api/mini-games?${params.toString()}`);
     const result = await response.json();
     if (!response.ok || (result.code !== 0 && result.code !== 207)) {
       throw new Error(result.message || "小游戏列表加载失败");
@@ -1282,7 +1587,7 @@ async function loadAwemeAccounts() {
       page: "1",
       page_size: "100",
     });
-    const response = await fetch(`/api/aweme-accounts?${params.toString()}`);
+    const response = await apiFetch(`/api/aweme-accounts?${params.toString()}`);
     const result = await response.json();
     if (!response.ok || result.code !== 0) {
       throw new Error(result.message || "抖音号列表加载失败");
@@ -1614,7 +1919,7 @@ async function loadLandingPages(event) {
   });
   landingRows.innerHTML = `<tr><td colspan="5" class="table-empty">加载中...</td></tr>`;
   try {
-    const response = await fetch(`/api/landing-pages?${params.toString()}`);
+    const response = await apiFetch(`/api/landing-pages?${params.toString()}`);
     const result = await response.json();
     if (!response.ok || result.code !== 0) {
       throw new Error(result.message || "落地页列表获取失败");
@@ -1710,6 +2015,18 @@ function clearLandingConfig(event) {
   renderLandingSummary();
 }
 
+authButton.addEventListener("click", openAuthDialog);
+closeAuthModal.addEventListener("click", closeAuthDialog);
+startOAuth.addEventListener("click", startOAuthFlow);
+exchangeAuthCode.addEventListener("click", exchangeLocalAuthCode);
+refreshOAuth.addEventListener("click", refreshLocalOAuth);
+clearOAuth.addEventListener("click", clearLocalOAuth);
+updateAuthStatus();
+if (new URLSearchParams(location.search).get("oauth") === "success") {
+  updateAuthStatus("授权已保存到当前浏览器，可以开始使用。");
+  history.replaceState({}, document.title, location.pathname);
+}
+
 changeAccount.addEventListener("click", openAccountModal);
 closeAccountModal.addEventListener("click", closeModal);
 cancelAccountModal.addEventListener("click", closeModal);
@@ -1740,11 +2057,67 @@ editProject.addEventListener("click", openProjectModal);
 closeProjectModal.addEventListener("click", closeProjectDialog);
 cancelProjectModal.addEventListener("click", closeProjectDialog);
 saveProjectConfig.addEventListener("click", saveProjectDialog);
-targetRegionPreset.addEventListener("change", () => {
-  if (!targetRegionPreset.value) return;
-  const current = new Set(parseNumericList(targetRegions.value));
-  current.add(Number(targetRegionPreset.value));
-  targetRegions.value = Array.from(current).join("\n");
+targetAgeUnlimited.addEventListener("change", () => {
+  if (!targetAgeUnlimited.checked) return;
+  document.querySelectorAll('input[name="targetAge"]').forEach((input) => {
+    input.checked = false;
+  });
+});
+document.querySelectorAll('input[name="targetAge"]').forEach((input) => {
+  input.addEventListener("change", () => {
+    if (input.checked && targetAgeUnlimited) targetAgeUnlimited.checked = false;
+    if (!selectedTargetAges().length && targetAgeUnlimited) targetAgeUnlimited.checked = true;
+  });
+});
+targetRegionSearch.addEventListener("input", renderTargetRegions);
+targetRegionClear.addEventListener("click", () => {
+  setTargetCities([]);
+});
+targetProvinceList.addEventListener("change", (event) => {
+  const unlimited = event.target.closest("[data-target-region-unlimited]");
+  if (unlimited) {
+    if (unlimited.checked) setTargetCities([]);
+    else renderTargetRegions();
+    return;
+  }
+  const input = event.target.closest("[data-target-province-check]");
+  if (!input) return;
+  const province = TARGET_REGIONS.find((item) => item.id === Number(input.dataset.targetProvinceCheck));
+  if (!province) return;
+  activeTargetProvinceId = province.id;
+  const selected = new Set(selectedTargetCities());
+  province.cities.forEach((city) => {
+    if (input.checked) selected.add(city.id);
+    else selected.delete(city.id);
+  });
+  setTargetCities(Array.from(selected));
+});
+targetProvinceList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-target-province]");
+  if (!button) return;
+  activeTargetProvinceId = Number(button.dataset.targetProvince);
+  renderTargetRegions();
+});
+targetCityList.addEventListener("change", (event) => {
+  const all = event.target.closest("[data-target-city-all]");
+  if (all) {
+    const province = TARGET_REGIONS.find((item) => item.id === Number(all.dataset.targetCityAll));
+    const selected = new Set(selectedTargetCities());
+    (province ? province.cities : []).forEach((city) => {
+      if (all.checked) selected.add(city.id);
+      else selected.delete(city.id);
+    });
+    setTargetCities(Array.from(selected));
+    return;
+  }
+  const cityInput = event.target.closest('input[name="targetCity"]');
+  if (!cityInput) return;
+  const cityId = Number(cityInput.value);
+  if (Number.isFinite(cityId)) {
+    if (cityInput.checked) selectedTargetCityIds.add(cityId);
+    else selectedTargetCityIds.delete(cityId);
+  }
+  renderTargetRegions();
 });
 editAdInfo.addEventListener("click", openAdInfoModal);
 closeAdInfoModal.addEventListener("click", closeAdInfoDialog);

@@ -3,12 +3,74 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { AsyncLocalStorage } = require("async_hooks");
 const { URL } = require("url");
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 5173);
 const API_HOST = "api.oceanengine.com";
 const AUTH_HOST = "ad.oceanengine.com";
+const AUTH_TOKEN_HEADERS = {
+  accessToken: "x-oe-access-token",
+  refreshToken: "x-oe-refresh-token",
+};
+const requestAuthStore = new AsyncLocalStorage();
+
+function headerValue(value) {
+  if (Array.isArray(value)) return value[0] || "";
+  return value || "";
+}
+
+function readRequestAuth(req) {
+  return {
+    accessToken: String(headerValue(req.headers[AUTH_TOKEN_HEADERS.accessToken]) || process.env.OCEANENGINE_ACCESS_TOKEN || "").trim(),
+    refreshToken: String(headerValue(req.headers[AUTH_TOKEN_HEADERS.refreshToken]) || process.env.OCEANENGINE_REFRESH_TOKEN || "").trim(),
+  };
+}
+
+function currentAuth() {
+  const store = requestAuthStore.getStore();
+  if (store && store.auth) return store.auth;
+  return {
+    accessToken: process.env.OCEANENGINE_ACCESS_TOKEN || "",
+    refreshToken: process.env.OCEANENGINE_REFRESH_TOKEN || "",
+  };
+}
+
+function getAccessToken() {
+  return currentAuth().accessToken || "";
+}
+
+function getRefreshToken() {
+  return currentAuth().refreshToken || "";
+}
+
+function extractTokenPayload(payload) {
+  const data = payload && payload.data ? payload.data : {};
+  return {
+    accessToken: data.access_token || data.accessToken || "",
+    refreshToken: data.refresh_token || data.refreshToken || "",
+  };
+}
+
+function rememberTokenPayload(payload) {
+  const tokens = extractTokenPayload(payload);
+  const store = requestAuthStore.getStore();
+  if (!store || !store.auth) return tokens;
+  if (tokens.accessToken) store.auth.accessToken = tokens.accessToken;
+  if (tokens.refreshToken) store.auth.refreshToken = tokens.refreshToken;
+  if (tokens.accessToken || tokens.refreshToken) store.authUpdated = true;
+  return tokens;
+}
+
+function authResponseHeaders() {
+  const store = requestAuthStore.getStore();
+  if (!store || !store.authUpdated || !store.auth) return {};
+  const headers = {};
+  if (store.auth.accessToken) headers["X-OE-Access-Token"] = store.auth.accessToken;
+  if (store.auth.refreshToken) headers["X-OE-Refresh-Token"] = store.auth.refreshToken;
+  return headers;
+}
 
 function loadEnv() {
   const envPath = path.join(ROOT, ".env");
@@ -30,6 +92,7 @@ function json(res, statusCode, data) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    ...authResponseHeaders(),
   });
   res.end(JSON.stringify(data, null, 2));
 }
@@ -38,19 +101,23 @@ function html(res, statusCode, content) {
   res.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
+    ...authResponseHeaders(),
   });
   res.end(content);
 }
 
 function readConfig() {
+  const auth = currentAuth();
   return {
     appId: process.env.OCEANENGINE_APP_ID || "1814394273423499",
     advertiserId: process.env.OCEANENGINE_ADVERTISER_ID || "1825202551573923",
     organizationId: process.env.OCEANENGINE_ORGANIZATION_ID || "1855464436371721",
     sourceProjectId: process.env.OCEANENGINE_SOURCE_PROJECT_ID || "7495640232558264331",
     hasSecret: Boolean(process.env.OCEANENGINE_SECRET),
-    hasAccessToken: Boolean(process.env.OCEANENGINE_ACCESS_TOKEN),
-    hasRefreshToken: Boolean(process.env.OCEANENGINE_REFRESH_TOKEN),
+    hasAccessToken: Boolean(auth.accessToken),
+    hasRefreshToken: Boolean(auth.refreshToken),
+    hasServerAccessToken: Boolean(process.env.OCEANENGINE_ACCESS_TOKEN),
+    hasServerRefreshToken: Boolean(process.env.OCEANENGINE_REFRESH_TOKEN),
   };
 }
 
@@ -100,14 +167,15 @@ function isAccessTokenExpired(body) {
 
 async function refreshOAuthToken() {
   const config = readConfig();
-  if (!process.env.OCEANENGINE_SECRET || !process.env.OCEANENGINE_REFRESH_TOKEN) {
+  const refreshToken = getRefreshToken();
+  if (!process.env.OCEANENGINE_SECRET || !refreshToken) {
     throw new Error("access_token已过期，且缺少 OCEANENGINE_SECRET 或 OCEANENGINE_REFRESH_TOKEN，无法自动刷新。请重新授权。");
   }
 
   const result = await oceanPost(AUTH_HOST, "/open_api/oauth2/refresh_token/", {
     app_id: config.appId,
     secret: process.env.OCEANENGINE_SECRET,
-    refresh_token: process.env.OCEANENGINE_REFRESH_TOKEN,
+    refresh_token: refreshToken,
   });
 
   if (!result.body || result.body.code !== 0) {
@@ -115,12 +183,12 @@ async function refreshOAuthToken() {
     throw new Error(`access_token已过期，自动刷新失败：${message}。请重新授权。`);
   }
 
-  saveTokenPayload(result.body);
-  return process.env.OCEANENGINE_ACCESS_TOKEN;
+  const tokens = rememberTokenPayload(result.body);
+  return tokens.accessToken || getAccessToken();
 }
 
 async function oceanGetWithAuth(apiPath, query) {
-  const result = await oceanGet(apiPath, query, process.env.OCEANENGINE_ACCESS_TOKEN);
+  const result = await oceanGet(apiPath, query, getAccessToken());
   if (!isAccessTokenExpired(result.body)) return result;
 
   const accessToken = await refreshOAuthToken();
@@ -688,7 +756,7 @@ function oceanApiPostMultipart(apiPath, fields, files) {
       headers: {
         "Content-Type": `multipart/form-data; boundary=${boundary}`,
         "Content-Length": body.length,
-        "Access-Token": process.env.OCEANENGINE_ACCESS_TOKEN,
+        "Access-Token": getAccessToken(),
         "User-Agent": "oceanengine-batch-creator/0.1",
       },
     }, (response) => {
@@ -724,7 +792,7 @@ function oceanApiPostRaw(apiPath, body) {
       headers: {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(body),
-        "Access-Token": process.env.OCEANENGINE_ACCESS_TOKEN,
+        "Access-Token": getAccessToken(),
         "User-Agent": "oceanengine-batch-creator/0.1",
       },
     }, (response) => {
@@ -1090,12 +1158,12 @@ function createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserI
 
 async function updateProjectStatus(projectId, optStatus, advertiserId) {
   const body = `{"advertiser_id":${advertiserId || process.env.OCEANENGINE_ADVERTISER_ID},"data":[{"project_id":${projectId},"opt_status":"${optStatus}"}]}`;
-  return oceanApiPostRawWithAuth("/open_api/v3.0/project/status/update/", body);
+  return oceanApiPostRawWriteWithRetry("/open_api/v3.0/project/status/update/", body, `update project ${projectId} status`);
 }
 
 async function updatePromotionStatus(promotionId, optStatus, advertiserId) {
   const body = `{"advertiser_id":${advertiserId || process.env.OCEANENGINE_ADVERTISER_ID},"data":[{"promotion_id":${promotionId},"opt_status":"${optStatus}"}]}`;
-  return oceanApiPostRawWithAuth("/open_api/v3.0/promotion/status/update/", body);
+  return oceanApiPostRawWriteWithRetry("/open_api/v3.0/promotion/status/update/", body, `update promotion ${promotionId} status`);
 }
 
 function extractVideoId(body) {
@@ -1117,6 +1185,41 @@ function isRateLimitMessage(message) {
     return true;
   }
   return /频率|限流|超限|稍后|too\s*many|rate/i.test(String(message || ""));
+}
+
+function oceanMessage(body) {
+  if (!body) return "";
+  return body.message || body.error_message || body.help_message || body.detail || "";
+}
+
+function isRateLimitResponse(body) {
+  if (!body) return false;
+  return isRateLimitMessage([
+    body.message,
+    body.error_message,
+    body.help_message,
+    body.detail,
+    body.code,
+  ].filter(Boolean).join(" "));
+}
+
+async function oceanApiPostRawWriteWithRetry(apiPath, body, label) {
+  const waits = [0, 15000, 30000, 60000, 90000, 120000];
+  let result = null;
+
+  for (const [index, waitMs] of waits.entries()) {
+    if (waitMs) {
+      logStep(`${label} rate limited, retry ${index}/${waits.length - 1} after ${Math.round(waitMs / 1000)}s`);
+      await sleep(waitMs);
+    }
+
+    result = await oceanApiPostRawWithAuth(apiPath, body);
+    if (!result.body || result.body.code === 0 || !isRateLimitResponse(result.body)) {
+      return result;
+    }
+  }
+
+  return result;
 }
 
 function extractVideoCoverId(body) {
@@ -1321,7 +1424,7 @@ function buildUnitOptions(options, unitIndex, totalUnits) {
 }
 
 async function cloneOneProjectAndPromotion(options) {
-  if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+  if (!getAccessToken()) {
     throw new Error("Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.");
   }
 
@@ -1357,10 +1460,10 @@ async function cloneOneProjectAndPromotion(options) {
   const projectBody = JSON.stringify(projectPayload);
   fs.writeFileSync(path.join(ROOT, "data/create-project-request.json"), JSON.stringify(projectPayload, null, 2), "utf8");
   logStep(`create project for advertiser ${advertiserId}`);
-  const projectResult = await oceanApiPostRawWithAuth("/open_api/v3.0/project/create/", projectBody);
+  const projectResult = await oceanApiPostRawWriteWithRetry("/open_api/v3.0/project/create/", projectBody, `create project for advertiser ${advertiserId}`);
   fs.writeFileSync(path.join(ROOT, "data/create-project-response.json"), projectResult.raw, "utf8");
   if (projectResult.body.code !== 0) {
-    throw new Error(`Create project failed: ${projectResult.body.message}`);
+    throw new Error(`Create project failed: ${oceanMessage(projectResult.body)}`);
   }
 
   const projectId = extractInteger(projectResult.raw, "project_id");
@@ -1369,23 +1472,25 @@ async function cloneOneProjectAndPromotion(options) {
   const projectStatusResult = await updateProjectStatus(projectId, projectStatus, advertiserId);
   fs.writeFileSync(path.join(ROOT, "data/project-status-update-response.json"), projectStatusResult.raw, "utf8");
   if (projectStatusResult.body.code !== 0) {
-    throw new Error(`Disable project failed: ${projectStatusResult.body.message}`);
+    throw new Error(`Disable project failed: ${oceanMessage(projectStatusResult.body)}`);
   }
 
   const creativeOptions = effectiveOptions.creative || {};
   const promotionCount = positiveInt(creativeOptions.groupCount, 1, 1, 500);
   const promotions = [];
   const promotionStatus = options.promotion && options.promotion.status ? options.promotion.status : "DISABLE";
+  if (promotionCount > 0) await sleep(5000);
 
   for (let unitIndex = 0; unitIndex < promotionCount; unitIndex += 1) {
+    if (unitIndex > 0) await sleep(5000);
     const unitOptions = buildUnitOptions({ ...effectiveOptions, runSuffix }, unitIndex, promotionCount);
     const promotionBody = createPromotionBody(sourcePromotion, projectId, nameSuffix, advertiserId, unitOptions);
     fs.writeFileSync(path.join(ROOT, "data/create-promotion-request.json"), promotionBody, "utf8");
     logStep(`create promotion ${unitIndex + 1}/${promotionCount} for project ${projectId}`);
-    const promotionResult = await oceanApiPostRawWithAuth("/open_api/v3.0/promotion/create/", promotionBody);
+    const promotionResult = await oceanApiPostRawWriteWithRetry("/open_api/v3.0/promotion/create/", promotionBody, `create promotion ${unitIndex + 1}/${promotionCount} for project ${projectId}`);
     fs.writeFileSync(path.join(ROOT, "data/create-promotion-response.json"), promotionResult.raw, "utf8");
     if (promotionResult.body.code !== 0) {
-      throw new Error(`Create promotion ${unitIndex + 1}/${promotionCount} failed: ${promotionResult.body.message}`);
+      throw new Error(`Create promotion ${unitIndex + 1}/${promotionCount} failed: ${oceanMessage(promotionResult.body)}`);
     }
 
     const promotionId = extractInteger(promotionResult.raw, "promotion_id");
@@ -1543,38 +1648,74 @@ async function readCloneRequest(req) {
   };
 }
 
-function updateEnv(updates) {
-  const envPath = path.join(ROOT, ".env");
-  const existing = fs.existsSync(envPath)
-    ? fs.readFileSync(envPath, "utf8").split(/\r?\n/)
-    : [];
-  const used = new Set();
-  const lines = existing.map((line) => {
-    const index = line.indexOf("=");
-    if (index === -1) return line;
-    const key = line.slice(0, index).trim();
-    if (!Object.prototype.hasOwnProperty.call(updates, key)) return line;
-    used.add(key);
-    return `${key}=${updates[key] || ""}`;
-  });
-
-  Object.keys(updates).forEach((key) => {
-    if (!used.has(key)) lines.push(`${key}=${updates[key] || ""}`);
-  });
-
-  fs.writeFileSync(envPath, `${lines.filter(Boolean).join("\n")}\n`, "utf8");
-  Object.assign(process.env, updates);
+function publicOrigin(req) {
+  const forwardedProto = headerValue(req.headers["x-forwarded-proto"]);
+  const proto = forwardedProto || (req.socket && req.socket.encrypted ? "https" : "http");
+  return `${proto}://${req.headers.host}`;
 }
 
-function saveTokenPayload(payload) {
-  const data = payload && payload.data ? payload.data : {};
-  const accessToken = data.access_token || data.accessToken;
-  const refreshToken = data.refresh_token || data.refreshToken;
-  const updates = {};
+function buildAuthorizeUrl(req, config) {
+  if (process.env.OCEANENGINE_AUTH_URL) {
+    return process.env.OCEANENGINE_AUTH_URL;
+  }
 
-  if (accessToken) updates.OCEANENGINE_ACCESS_TOKEN = accessToken;
-  if (refreshToken) updates.OCEANENGINE_REFRESH_TOKEN = refreshToken;
-  if (Object.keys(updates).length) updateEnv(updates);
+  const callbackUrl = process.env.OCEANENGINE_REDIRECT_URI || `${publicOrigin(req)}/api/oauth/callback`;
+  const authUrl = new URL("/openapi/audit/oauth.html", `https://${AUTH_HOST}`);
+  authUrl.searchParams.set("app_id", config.appId);
+  authUrl.searchParams.set("state", crypto.randomBytes(8).toString("hex"));
+  authUrl.searchParams.set("redirect_uri", callbackUrl);
+  if (process.env.OCEANENGINE_SCOPE) {
+    authUrl.searchParams.set("scope", process.env.OCEANENGINE_SCOPE);
+  }
+  return authUrl.toString();
+}
+
+function escapeHtmlText(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function safeScriptJson(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function tokenCallbackHtml(payload, rawBody) {
+  const tokens = extractTokenPayload(payload);
+  const authPayload = {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    savedAt: Date.now(),
+  };
+  const bodyPreview = escapeHtmlText(JSON.stringify(rawBody, null, 2));
+  return `
+    <!doctype html>
+    <html lang="zh-CN">
+    <head><meta charset="utf-8"><title>授权完成</title></head>
+    <body style="font-family:Arial,'Microsoft YaHei',sans-serif;padding:40px;background:#f5f6f8;color:#1f2937">
+      <div style="max-width:720px;margin:auto;background:#fff;border:1px solid #e7eaf0;padding:28px;border-radius:6px">
+        <h1 style="margin-top:0">授权完成</h1>
+        <p>Token 已保存到当前浏览器本地，稍后会自动返回工具页面。</p>
+        <p>Access Token：${tokens.accessToken ? "已获取" : "未获取到"}；Refresh Token：${tokens.refreshToken ? "已获取" : "未获取到"}</p>
+        <pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e7eaf0;padding:12px;max-height:260px;overflow:auto">${bodyPreview}</pre>
+        <p><a href="/" style="color:#176bff">立即返回批量创编页面</a></p>
+      </div>
+      <script>
+        (function () {
+          var auth = ${safeScriptJson(authPayload)};
+          if (auth.accessToken) {
+            localStorage.setItem("oceanengineAuth", JSON.stringify(auth));
+          }
+          setTimeout(function () {
+            location.replace("/?oauth=success");
+          }, 900);
+        })();
+      </script>
+    </body>
+    </html>
+  `;
 }
 
 function serveStatic(req, res) {
@@ -1617,9 +1758,9 @@ async function handleApi(req, res) {
   }
 
   if (req.url === "/api/source-project") {
-    if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+    if (!getAccessToken()) {
       json(res, 401, {
-        message: "缺少 OCEANENGINE_ACCESS_TOKEN，请在 .env 中配置授权广告主 AccessToken。",
+        message: "缺少授权 Token，请先点击页面右上角“授权”完成巨量引擎授权。",
         config,
       });
       return;
@@ -1641,9 +1782,9 @@ async function handleApi(req, res) {
   }
 
   if (req.url === "/api/advertisers") {
-    if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+    if (!getAccessToken()) {
       json(res, 401, {
-        message: "Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.",
+        message: "缺少授权 Token，请先点击页面右上角“授权”完成巨量引擎授权。",
         config,
       });
       return;
@@ -1726,10 +1867,10 @@ async function handleApi(req, res) {
   }
 
   if (req.url.startsWith("/api/mini-games")) {
-    if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+    if (!getAccessToken()) {
       json(res, 401, {
         code: 401,
-        message: "Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.",
+        message: "缺少授权 Token，请先点击页面右上角“授权”完成巨量引擎授权。",
         config,
       });
       return;
@@ -1766,10 +1907,10 @@ async function handleApi(req, res) {
   }
 
   if (req.url.startsWith("/api/landing-pages")) {
-    if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+    if (!getAccessToken()) {
       json(res, 401, {
         code: 401,
-        message: "Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.",
+        message: "缺少授权 Token，请先点击页面右上角“授权”完成巨量引擎授权。",
         config,
       });
       return;
@@ -1843,10 +1984,10 @@ async function handleApi(req, res) {
   }
 
   if (req.url.startsWith("/api/aweme-accounts")) {
-    if (!process.env.OCEANENGINE_ACCESS_TOKEN) {
+    if (!getAccessToken()) {
       json(res, 401, {
         code: 401,
-        message: "Missing OCEANENGINE_ACCESS_TOKEN. Please authorize first.",
+        message: "缺少授权 Token，请先点击页面右上角“授权”完成巨量引擎授权。",
         config,
       });
       return;
@@ -1882,6 +2023,22 @@ async function handleApi(req, res) {
     return;
   }
 
+  if (req.url === "/api/oauth/authorize-url") {
+    if (!process.env.OCEANENGINE_SECRET) {
+      json(res, 400, { message: "缺少 OCEANENGINE_SECRET，请先在服务器 .env 中配置应用 Secret。" });
+      return;
+    }
+    json(res, 200, {
+      code: 0,
+      message: "OK",
+      data: {
+        url: buildAuthorizeUrl(req, config),
+        callbackUrl: process.env.OCEANENGINE_REDIRECT_URI || `${publicOrigin(req)}/api/oauth/callback`,
+      },
+    });
+    return;
+  }
+
   if (req.url.startsWith("/api/oauth/exchange")) {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const body = req.method === "POST" ? await readBody(req) : {};
@@ -1902,10 +2059,13 @@ async function handleApi(req, res) {
         secret: process.env.OCEANENGINE_SECRET,
         auth_code: authCode,
       });
-      saveTokenPayload(result.body);
+      const tokens = rememberTokenPayload(result.body);
       json(res, result.statusCode || 200, {
         ...result.body,
-        saved: readConfig(),
+        localAuth: {
+          hasAccessToken: Boolean(tokens.accessToken),
+          hasRefreshToken: Boolean(tokens.refreshToken),
+        },
       });
     } catch (error) {
       json(res, 502, { message: error.message });
@@ -1937,27 +2097,8 @@ async function handleApi(req, res) {
         secret: process.env.OCEANENGINE_SECRET,
         auth_code: authCode,
       });
-      saveTokenPayload(result.body);
-      const saved = readConfig();
-      html(res, 200, `
-        <!doctype html>
-        <html lang="zh-CN">
-        <head><meta charset="utf-8"><title>授权完成</title></head>
-        <body style="font-family:Arial,'Microsoft YaHei',sans-serif;padding:40px;background:#f5f6f8;color:#1f2937">
-          <div style="max-width:720px;margin:auto;background:#fff;border:1px solid #e7eaf0;padding:28px;border-radius:6px">
-            <h1 style="margin-top:0">授权完成</h1>
-            <p>已尝试用授权码换取 Token，并写入本地 .env。</p>
-            <ul>
-              <li>Access Token：${saved.hasAccessToken ? "已保存" : "未获取到"}</li>
-              <li>Refresh Token：${saved.hasRefreshToken ? "已保存" : "未获取到"}</li>
-              <li>广告主 ID：${saved.advertiserId}</li>
-            </ul>
-            <pre style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e7eaf0;padding:12px">${JSON.stringify(result.body, null, 2)}</pre>
-            <p><a href="/" style="color:#176bff">返回批量创编页面</a></p>
-          </div>
-        </body>
-        </html>
-      `);
+      rememberTokenPayload(result.body);
+      html(res, 200, tokenCallbackHtml(result.body, result.body));
     } catch (exchangeError) {
       html(res, 502, `<h1>换取 Token 失败</h1><p>${exchangeError.message}</p>`);
     }
@@ -1965,8 +2106,9 @@ async function handleApi(req, res) {
   }
 
   if (req.url === "/api/oauth/refresh") {
-    if (!process.env.OCEANENGINE_SECRET || !process.env.OCEANENGINE_REFRESH_TOKEN) {
-      json(res, 400, { message: "缺少 OCEANENGINE_SECRET 或 OCEANENGINE_REFRESH_TOKEN。" });
+    const refreshToken = getRefreshToken();
+    if (!process.env.OCEANENGINE_SECRET || !refreshToken) {
+      json(res, 400, { message: "缺少 OCEANENGINE_SECRET 或当前浏览器的 Refresh Token。" });
       return;
     }
 
@@ -1974,12 +2116,15 @@ async function handleApi(req, res) {
       const result = await oceanPost(AUTH_HOST, "/open_api/oauth2/refresh_token/", {
         app_id: config.appId,
         secret: process.env.OCEANENGINE_SECRET,
-        refresh_token: process.env.OCEANENGINE_REFRESH_TOKEN,
+        refresh_token: refreshToken,
       });
-      saveTokenPayload(result.body);
+      const tokens = rememberTokenPayload(result.body);
       json(res, result.statusCode || 200, {
         ...result.body,
-        saved: readConfig(),
+        localAuth: {
+          hasAccessToken: Boolean(tokens.accessToken),
+          hasRefreshToken: Boolean(tokens.refreshToken),
+        },
       });
     } catch (error) {
       json(res, 502, { message: error.message });
@@ -2027,7 +2172,11 @@ loadEnv();
 
 const server = http.createServer((req, res) => {
   if (req.url.startsWith("/api/")) {
-    handleApi(req, res);
+    requestAuthStore.run({ auth: readRequestAuth(req), authUpdated: false }, () => {
+      handleApi(req, res).catch((error) => {
+        json(res, 500, { code: 500, message: error.message });
+      });
+    });
     return;
   }
   serveStatic(req, res);

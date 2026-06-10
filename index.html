@@ -28,6 +28,10 @@
       <a href="#">管理</a>
     </nav>
     <div class="top-actions">
+      <button class="auth-button" id="authButton" type="button">
+        <span class="auth-dot" id="authStatusDot"></span>
+        <span id="authStatusText">未授权</span>
+      </button>
       <button class="mini-button">客服</button>
       <button class="mini-button">最新功能</button>
       <button class="icon-button" aria-label="通知">●</button>
@@ -290,23 +294,17 @@
               <option value="GENDER_MALE">男</option>
               <option value="GENDER_FEMALE">女</option>
             </select></label>
-            <label>常用地域<select id="targetRegionPreset">
-              <option value="">手动/不限</option>
-              <option value="11">北京</option>
-              <option value="31">上海</option>
-              <option value="44">广东</option>
-              <option value="33">浙江</option>
-              <option value="32">江苏</option>
-              <option value="51">四川</option>
-              <option value="42">湖北</option>
-              <option value="43">湖南</option>
-              <option value="37">山东</option>
-              <option value="41">河南</option>
+            <label>地域类型<select id="targetLocationType">
+              <option value="CURRENT">正在该地区的用户</option>
+              <option value="HOME">居住在该地区的用户</option>
+              <option value="TRAVEL">到访过该地区的用户</option>
+              <option value="ALL">不限行为类型</option>
             </select></label>
           </div>
           <div class="inline-setting">
             <span>年龄</span>
             <div class="segmented wide target-age-options">
+              <label><input type="checkbox" id="targetAgeUnlimited" value="">不限</label>
               <label><input type="checkbox" name="targetAge" value="AGE_BETWEEN_18_23">18-23</label>
               <label><input type="checkbox" name="targetAge" value="AGE_BETWEEN_24_30">24-30</label>
               <label><input type="checkbox" name="targetAge" value="AGE_BETWEEN_31_40">31-40</label>
@@ -314,14 +312,26 @@
               <label><input type="checkbox" name="targetAge" value="AGE_ABOVE_50">50+</label>
             </div>
           </div>
-          <div class="project-grid compact-target-grid">
-            <label>地域编码<textarea id="targetRegions" rows="3" placeholder="一行一个或逗号分隔；留空表示不限"></textarea></label>
-            <label>地域类型<select id="targetLocationType">
-              <option value="CURRENT">正在该地区的用户</option>
-              <option value="HOME">居住在该地区的用户</option>
-              <option value="TRAVEL">到访过该地区的用户</option>
-              <option value="ALL">不限行为类型</option>
-            </select></label>
+          <div class="region-picker">
+            <div class="region-picker-head">
+              <span id="targetRegionSummary">已选：不限</span>
+              <button class="clear-button" id="targetRegionClear" type="button">清空</button>
+            </div>
+            <input id="targetRegionSearch" placeholder="搜索省份或城市">
+            <div class="region-picker-tabs">
+              <button class="is-active" type="button">地理划分</button>
+              <button type="button" disabled>发展划分</button>
+            </div>
+            <div class="region-picker-grid">
+              <div>
+                <div class="region-column-title">省份</div>
+                <div class="region-list" id="targetProvinceList"></div>
+              </div>
+              <div>
+                <div class="region-column-title">城市</div>
+                <div class="region-list" id="targetCityList"></div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -771,6 +781,31 @@
     </section>
   </div>
 
+  <div class="modal" id="authModal" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <section class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle">
+      <header class="dialog-head">
+        <h2 id="authDialogTitle">巨量引擎授权</h2>
+        <button class="dialog-close" id="closeAuthModal" aria-label="关闭">×</button>
+      </header>
+      <div class="auth-body">
+        <div class="auth-state" id="authCurrentState">当前浏览器未保存授权。</div>
+        <div class="auth-actions">
+          <button class="confirm-button is-ready" id="startOAuth" type="button">获取授权</button>
+          <button class="cancel-button" id="refreshOAuth" type="button">刷新 Token</button>
+          <button class="cancel-button" id="clearOAuth" type="button">清除授权</button>
+        </div>
+        <div class="auth-code-box">
+          <label for="authCodeInput">授权码兜底</label>
+          <textarea id="authCodeInput" rows="4" placeholder="如果授权后没有自动返回，把回调地址里的 code 或 auth_code 粘贴到这里"></textarea>
+          <button class="confirm-button is-ready" id="exchangeAuthCode" type="button">保存授权码</button>
+        </div>
+        <p class="auth-hint" id="authMessage">Token 只保存在当前浏览器本地，不写入服务器 .env。</p>
+      </div>
+    </section>
+  </div>
+
+  <script src="regions.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
